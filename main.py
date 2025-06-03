@@ -26,11 +26,15 @@ import tempfile
 import streamlit as st
 from supabase import create_client, Client
 from sentence_transformers import SentenceTransformer
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+
+# ─── UPDATED IMPORTS: langchain_module moved to top-level `langchain` namespace ───
+from langchain.output_parsers import StrOutputParser
+from langchain.prompts import ChatPromptTemplate
+from langchain.schema import Document
+
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_core.schema import Document
+
 from PyPDF2 import PdfReader
 import pandas as pd
 import google.generativeai as genai
