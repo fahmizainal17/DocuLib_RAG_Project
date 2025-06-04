@@ -199,9 +199,6 @@ hf_*
 # Ignore our FAISS index directory
 faiss_index/
 
-# (Optional) Ignore local photos folder
-photos/
-
 # Never commit your Streamlit secrets file
 .streamlit/secrets.toml
 
