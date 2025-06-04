@@ -200,4 +200,4 @@ cython_debug/
 faiss_index/
 
 # Hugging Face cache (your HF_TOKEN named folder)
-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/
+hf_* 
