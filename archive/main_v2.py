@@ -166,15 +166,19 @@ def extract_text_from_excel(file_path: str) -> str:
 
 
 def get_user_role(user_email: str) -> str:
-    response = supabase.table("profiles") \
-        .select("role") \
-        .eq("email", user_email) \
-        .single() \
-        .execute()
+    """
+    Fetch the user’s role from Supabase 'profiles' table based on email.
+
+    Args:
+        user_email (str): The authenticated user’s email.
+
+    Returns:
+        str: Role of the user ("admin", "manager", or "worker").
+    """
+    response = supabase.table("profiles").select("role").eq("email", user_email).single().execute()
     if response.error or response.data is None:
         return "worker"
-    return response.data["role"]
-
+    return response.data.get("role", "worker")
 
 
 def chunk_text(text: str, max_words: int = 500) -> list[tuple[int, str]]:
@@ -296,10 +300,11 @@ if "uploaded_docs" not in st.session_state:
 
 def login_or_signup():
     """
-    Display two tabs: ‘Login’ and ‘Sign Up’.
-    Only emails in ALLOWED_SIGNUP_EMAILS are allowed to register.
+    Show two tabs: one for Login, one for Sign Up.
+    Only emails in ALLOWED_SIGNUP_EMAILS may register.
     """
     st.subheader("🔑 Access DocuLib")
+
     tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
 
     # ─── LOGIN TAB ───
@@ -307,80 +312,52 @@ def login_or_signup():
         email_l = st.text_input("Email", key="login_email")
         password_l = st.text_input("Password", type="password", key="login_password")
         if st.button("Login", key="login_button"):
-            try:
-                login_resp = supabase.auth.sign_in_with_password({
-                    "email": email_l,
-                    "password": password_l
-                })
-            except Exception as e:
-                # Show any error thrown by supabase-py
-                st.error(f"❌ Login error: {e}")
-                return
+            auth_response = supabase.auth.sign_in_with_password({
+                "email": email_l,
+                "password": password_l
+            })
+            data = auth_response.get("data") or {}
+            error = auth_response.get("error")
 
-            # In supabase-py v2, login_resp is an AuthResponse.
-            # We can check its attributes .error and .user
-            err = getattr(login_resp, "error", None)
-            user_obj = getattr(login_resp, "user", None)
-
-            if err:
-                # err usually has a .message attribute
-                st.error(f"❌ Login failed: {err.message if hasattr(err, 'message') else err}")
-            elif user_obj is None:
-                st.error("❌ Login failed (no user returned). Please try again.")
+            if error:
+                st.error(f"Login failed: {error.get('message')}")
             else:
-                st.success("✅ Login successful!")
-                st.session_state["user_email"] = user_obj.email
-                st.session_state["user_role"] = get_user_role(user_obj.email)
-                fetch_uploaded_documents()
-                st.experimental_rerun()
+                user = data.get("user")
+                if user:
+                    st.success("Login successful.")
+                    st.session_state["user_email"] = email_l
+                    st.session_state["user_role"] = get_user_role(email_l)
+                    fetch_uploaded_documents()
+                    st.experimental_rerun()
+                else:
+                    st.error("Unexpected response. Please try again.")
 
     # ─── SIGN UP TAB ───
     with tab_signup:
         email_s = st.text_input("New Email", key="signup_email")
         password_s = st.text_input("New Password", type="password", key="signup_password")
+
         if st.button("Sign Up", key="signup_button"):
             if email_s not in ALLOWED_SIGNUP_EMAILS:
                 st.error(
                     "❌ You are not allowed to sign up with that email.\n"
-                    "Only the following addresses may register:\n\n"
+                    "Only these addresses can register:\n\n"
                     f"{', '.join(ALLOWED_SIGNUP_EMAILS)}\n\n"
                     "Please contact the administrator if your email is missing."
                 )
             else:
-                try:
-                    signup_resp = supabase.auth.sign_up({
-                        "email": email_s,
-                        "password": password_s
-                    })
-                except Exception as e:
-                    msg = str(e).lower()
-                    # Example: if rate-limit or wait time hasn't elapsed
-                    if "you can only request this after" in msg:
-                        st.error("⚠️ Please wait approximately 1 minute before trying to sign up again.")
-                    else:
-                        st.error(f"❌ Sign-up failed: {e}")
-                    return
+                signup_response = supabase.auth.sign_up({
+                    "email": email_s,
+                    "password": password_s
+                })
+                data = signup_response.get("data") or {}
+                error = signup_response.get("error")
 
-                err = getattr(signup_resp, "error", None)
-                user_obj = getattr(signup_resp, "user", None)
-
-                if err:
-                    st.error(f"❌ Sign-up failed: {err.message if hasattr(err, 'message') else err}")
-                elif user_obj is None:
-                    # Supabase may require email verification; in that case .user might be None,
-                    # but the sign-up process still succeeded.
-                    st.success(
-                        "✅ Sign-up successful! Please check your inbox for a confirmation email (if enabled)."
-                    )
-                    st.info("After verifying your email, please log in on the Login tab.")
+                if error:
+                    st.error(f"Sign-up failed: {error.get('message')}")
                 else:
                     st.success("✅ Sign-up successful! You can now log in.")
 
-def logout():
-    supabase.auth.sign_out()
-    st.session_state["user_email"] = None
-    st.session_state["user_role"] = None
-    st.stop()
 
 def logout():
     """

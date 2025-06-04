@@ -4,17 +4,17 @@ import base64
 
 def get_base64_of_bin_file(bin_file):
     """
-    Function to encode local file (image or gif) to base64 string
+    Function to encode a local file (image or gif) to a base64 string.
     """
-    with open(bin_file, 'rb') as f:
+    with open(bin_file, "rb") as f:
         data = f.read()
     return base64.b64encode(data).decode()
 
 def page_style():
-    # Encode the local image to base64
-    sidebar_image_base64 = get_base64_of_bin_file('assets/doc_background.jpg')
+    # Encode the local image to base64 for the sidebar background
+    sidebar_image_base64 = get_base64_of_bin_file("assets/doc_background.jpg")
 
-    # Apply custom styles, including the sidebar background image
+    # Custom CSS to style the page and sidebar
     custom_style = f"""
         <style>
             /* Hide Streamlit default elements */
@@ -61,47 +61,49 @@ def page_style():
         </style>
     """
 
-    # Set the page configuration with a custom icon
-    icon = Image.open('assets/RAG_LLM_Pic.jpg')
-    st.set_page_config(page_title="Fahmi's Resume Q&A", page_icon=icon, layout="wide")
+    # Set the page configuration with a custom icon and wide layout
+    icon = Image.open("assets/RAG_LLM_Pic.jpg")
+    st.set_page_config(page_title="DocuLib RAG System", page_icon=icon, layout="wide")
 
-    # Apply custom styles to the page
+    # Apply the custom CSS to the page
     st.markdown(custom_style, unsafe_allow_html=True)
 
-    # Display the main background image
-    image = Image.open('assets/DocuLib_Background.png')
-    st.image(image)
+    # Display the main background image at the top of the page
+    main_bg = Image.open("assets/DocuLib_Background.png")
+    st.image(main_bg, use_container_width=True)
 
     # Sidebar content
     with st.sidebar:
-        # Display the round profile picture at the top of the sidebar
+        # Display a round profile picture (or logo) at the top of the sidebar
         st.image("photos/Round_Profile_Photo.png", width=100)
 
-        # --- New RAG Project Sidebar Content ---
+        # --- DocuLib RAG System Sidebar Content ---
         st.markdown("""
-            ## 📄 Fahmi's Resume Q&A (RAG Project)
+            ## 📂 DocuLib RAG System
 
-            **Explore Muhammad Fahmi's professional journey through this intelligent Q&A app!**
+            **Learn and retrieve knowledge across all your documents through levels of access.**
 
-            ### 🔍 How to Use:
-            1. Enter any question about Fahmi's experience or skills.  
-            2. Get an answer instantly based on his resume.
+            ### 📖 How to Use:
+            1. Upload any `.txt`, `.pdf`, `.csv`, or `.xlsx` file in the “Upload” tab.  
+            2. Assign a role (worker, manager, admin) so only those roles can access each document.  
+            3. In the “Q&A” tab, ask questions and get instant answers based on your uploaded content.  
+            4. Use the “Document Library” tab to view or download files you have permission to access.
 
-            ### 🤖 Models Used:
-            - **Embedding Model:** `sentence-transformers/all-MiniLM-L6-v2` for semantic search.
-            - **Text Generation Model:** `Gemini 1.5 Flash` for generating concise answers.
+            ### 🤖 Technologies Used:
+            - **Embedding Model:** `sentence-transformers/all-MiniLM-L6-v2`  
+            - **Vector Store:** FAISS (via LangChain)  
+            - **Text Generation:** Gemini 2.0 Flash (Google Generative AI)  
+            - **Database & Auth:** Supabase
 
-            ### 🗂️ Data Stored:
-            - Fahmi's resume is stored in a **FAISS Vector Database** for fast retrieval.
-
-            ### 💡 Example Questions:
-            - *"What are Fahmi's technical skills?"*  
-            - *"Tell me about Fahmi's role at Invoke Solutions."*
+            ### 🔑 User Roles:
+            - **Worker:** Can upload and query documents tagged “worker”.  
+            - **Manager:** Can upload and query documents tagged “manager” or “worker”.  
+            - **Admin:** Full access to all documents.
 
             ---
         """)
 
-        # Play Background Music Button
+        # Optional: Play background music button
         new_tab_button = """
         <a href="https://youtu.be/kx5N2TeDqNM?si=-sCwGJpuKLQ1PFO6" target="_blank">
             <button style="background-color: #FFA500; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
@@ -113,12 +115,12 @@ def page_style():
 
         st.markdown("""---""")
 
-        # About the Developer
+        # About the Developer or Team
         st.markdown("""
         ### 👨‍💻 About the Developer
-        Hi! I'm **Fahmi Zainal**, a data scientist and developer passionate about building interactive applications using AI and Machine Learning.
+        Hi! We are the **DocuLib Team**, dedicated to making document retrieval and knowledge management simple and secure.
 
-        **Connect with me:**
+        **Connect with us:**
         """)
 
         # LinkedIn Button
@@ -132,11 +134,11 @@ def page_style():
         """, unsafe_allow_html=True)
 
         # GitHub Button
-        github_url = "https://github.com/fahmizainal17"
+        github_url = "https://github.com/fahmizainal17/DocuLib"
         st.markdown(f"""
             <a href="{github_url}" target="_blank">
                 <button style="background-color: #333; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
-                    <img src="https://cdn-icons-png.flaticon.com/512/25/25231.png" width="16" style="vertical-align: middle;"> Check out my GitHub
+                    <img src="https://cdn-icons-png.flaticon.com/512/25/25231.png" width="16" style="vertical-align: middle;"> Check out DocuLib on GitHub
                 </button>
             </a>
         """, unsafe_allow_html=True)

@@ -2,12 +2,12 @@
 Streamlit RAG Knowledge System with Role-Based Access, Supabase Storage, and st.secrets
 
 This Streamlit app provides:
-1. User authentication via Supabase (email/password login), restricted to an allow‐list of emails.
+1. User authentication via Supabase (email/password login).
 2. Role-based access control: documents can be tagged as "admin", "manager", or "worker".
 3. A “Main” tab to upload `.txt`, `.pdf`, `.csv`, or `.xlsx` files, which are stored in Supabase Storage and indexed in FAISS via LangChain.
 4. A “Q&A” tab to ask questions; the app retrieves relevant document chunks via LangChain FAISS and generates an answer using Gemini (`google.generativeai`).
 5. A “Document Library” tab listing all uploaded documents filtered by the user’s role.
-6. All secrets (Supabase URL/key, HF token, Gemini API key, and allowed signup emails) come from `st.secrets`.
+6. All secrets (Supabase, HF token, Gemini API key) come from `st.secrets`.
 
 Dependencies:
 - streamlit
@@ -50,9 +50,6 @@ HF_TOKEN = st.secrets["HF_TOKEN"]
 
 # Gemini API key from Streamlit secrets
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-
-# Allow‐list of emails permitted to sign up
-ALLOWED_SIGNUP_EMAILS = st.secrets["allowed_signup_emails"]
 
 
 # ------------------------------------------------------------------------------
@@ -166,15 +163,19 @@ def extract_text_from_excel(file_path: str) -> str:
 
 
 def get_user_role(user_email: str) -> str:
-    response = supabase.table("profiles") \
-        .select("role") \
-        .eq("email", user_email) \
-        .single() \
-        .execute()
+    """
+    Fetch the user’s role from Supabase 'profiles' table based on email.
+
+    Args:
+        user_email (str): The authenticated user’s email.
+
+    Returns:
+        str: Role of the user ("admin", "manager", or "worker").
+    """
+    response = supabase.table("profiles").select("role").eq("email", user_email).single().execute()
     if response.error or response.data is None:
         return "worker"
-    return response.data["role"]
-
+    return response.data.get("role", "worker")
 
 
 def chunk_text(text: str, max_words: int = 500) -> list[tuple[int, str]]:
@@ -294,98 +295,42 @@ if "uploaded_docs" not in st.session_state:
     st.session_state["uploaded_docs"] = []  # Cache of documents metadata
 
 
-def login_or_signup():
+def login():
     """
-    Display two tabs: ‘Login’ and ‘Sign Up’.
-    Only emails in ALLOWED_SIGNUP_EMAILS are allowed to register.
+    Display login form and authenticate via Supabase using sign_in_with_password.
     """
-    st.subheader("🔑 Access DocuLib")
-    tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
+    st.subheader("🔑 Login")
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
+        # ─── Use sign_in_with_password instead of sign_in ───
+        auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        # The response is a dict: {"data": {...}, "error": {...}}
+        data = auth_response.get("data") or {}
+        error = auth_response.get("error")
 
-    # ─── LOGIN TAB ───
-    with tab_login:
-        email_l = st.text_input("Email", key="login_email")
-        password_l = st.text_input("Password", type="password", key="login_password")
-        if st.button("Login", key="login_button"):
-            try:
-                login_resp = supabase.auth.sign_in_with_password({
-                    "email": email_l,
-                    "password": password_l
-                })
-            except Exception as e:
-                # Show any error thrown by supabase-py
-                st.error(f"❌ Login error: {e}")
-                return
-
-            # In supabase-py v2, login_resp is an AuthResponse.
-            # We can check its attributes .error and .user
-            err = getattr(login_resp, "error", None)
-            user_obj = getattr(login_resp, "user", None)
-
-            if err:
-                # err usually has a .message attribute
-                st.error(f"❌ Login failed: {err.message if hasattr(err, 'message') else err}")
-            elif user_obj is None:
-                st.error("❌ Login failed (no user returned). Please try again.")
-            else:
-                st.success("✅ Login successful!")
-                st.session_state["user_email"] = user_obj.email
-                st.session_state["user_role"] = get_user_role(user_obj.email)
+        if error:
+            st.error(f"Login failed: {error.get('message')}")
+        else:
+            # If sign-in was successful, `data` contains a "user" key
+            user = data.get("user")
+            if user:
+                st.success("Login successful.")
+                st.session_state["user_email"] = email
+                st.session_state["user_role"] = get_user_role(email)
+                # Fetch any previously uploaded documents for this user
                 fetch_uploaded_documents()
+                # Rerun so that tabs/pages refresh
                 st.experimental_rerun()
-
-    # ─── SIGN UP TAB ───
-    with tab_signup:
-        email_s = st.text_input("New Email", key="signup_email")
-        password_s = st.text_input("New Password", type="password", key="signup_password")
-        if st.button("Sign Up", key="signup_button"):
-            if email_s not in ALLOWED_SIGNUP_EMAILS:
-                st.error(
-                    "❌ You are not allowed to sign up with that email.\n"
-                    "Only the following addresses may register:\n\n"
-                    f"{', '.join(ALLOWED_SIGNUP_EMAILS)}\n\n"
-                    "Please contact the administrator if your email is missing."
-                )
             else:
-                try:
-                    signup_resp = supabase.auth.sign_up({
-                        "email": email_s,
-                        "password": password_s
-                    })
-                except Exception as e:
-                    msg = str(e).lower()
-                    # Example: if rate-limit or wait time hasn't elapsed
-                    if "you can only request this after" in msg:
-                        st.error("⚠️ Please wait approximately 1 minute before trying to sign up again.")
-                    else:
-                        st.error(f"❌ Sign-up failed: {e}")
-                    return
+                st.error("Unexpected response from Supabase. Please try again.")
 
-                err = getattr(signup_resp, "error", None)
-                user_obj = getattr(signup_resp, "user", None)
-
-                if err:
-                    st.error(f"❌ Sign-up failed: {err.message if hasattr(err, 'message') else err}")
-                elif user_obj is None:
-                    # Supabase may require email verification; in that case .user might be None,
-                    # but the sign-up process still succeeded.
-                    st.success(
-                        "✅ Sign-up successful! Please check your inbox for a confirmation email (if enabled)."
-                    )
-                    st.info("After verifying your email, please log in on the Login tab.")
-                else:
-                    st.success("✅ Sign-up successful! You can now log in.")
-
-def logout():
-    supabase.auth.sign_out()
-    st.session_state["user_email"] = None
-    st.session_state["user_role"] = None
-    st.stop()
 
 def logout():
     """
     Log the user out of Supabase and clear session state.
     """
+    # In v2+, sign_out() still exists; it clears cookies/tokens.
     supabase.auth.sign_out()
     st.session_state["user_email"] = None
     st.session_state["user_role"] = None
@@ -403,9 +348,9 @@ def fetch_uploaded_documents():
         st.session_state["uploaded_docs"] = res.data
 
 
-# If nobody is logged in yet, show the login/sign-up UI and stop further rendering
-if not st.session_state.get("user_email"):
-    login_or_signup()
+# If not logged in, show login form
+if not st.session_state["user_email"]:
+    login()
     st.stop()
 
 # Sidebar: show user info, logout button, and how to retrieve past uploads
