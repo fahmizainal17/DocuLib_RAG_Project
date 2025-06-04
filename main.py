@@ -176,7 +176,6 @@ def get_user_role(user_email: str) -> str:
     return response.data["role"]
 
 
-
 def chunk_text(text: str, max_words: int = 500) -> list[tuple[int, str]]:
     """
     Break the document text into chunks of approximately max_words words.
