@@ -1,260 +1,428 @@
 """
-Streamlit RAG Knowledge System with Role-Based Access, Supabase Storage, and st.secrets
+Streamlit RAG Knowledge System with Role-Based Access and st.secrets
 
 This Streamlit app provides:
-1. User authentication via Supabase (email/password login), restricted to an allow‐list of emails.
-2. Role-based access control: documents can be tagged as "admin", "manager", or "worker".
-3. A “Main” tab to upload `.txt`, `.pdf`, `.csv`, or `.xlsx` files, which are stored in Supabase Storage and indexed in FAISS via LangChain.
-4. A “Q&A” tab to ask questions; the app retrieves relevant document chunks via LangChain FAISS and generates an answer using Gemini (`google.generativeai`).
-5. A “Document Library” tab listing all uploaded documents filtered by the user’s role.
-6. All secrets (Supabase URL/key, HF token, Gemini API key, and allowed signup emails) come from `st.secrets`.
-
-Dependencies:
-- streamlit
-- supabase
-- langchain-core
-- langchain-community
-- sentence_transformers
-- PyPDF2
-- pandas
-- openpyxl
-- google-generativeai
-- faiss-cpu
+1. Role-based access control: documents can be tagged as "admin", "manager", or "worker".
+2. A "Main" tab to upload .txt, .pdf, .csv, .xlsx, .pptx files, or input website URLs or YouTube links, which are immediately indexed into FAISS via LangChain.
+   - PDF text is extracted by PyPDFLoader and manually chunked (~500 words).
+   - Website content is extracted using AsyncHtmlLoader and Html2TextTransformer.
+   - YouTube videos are transcribed using yt-dlp and OpenAI Whisper.
+   - PowerPoint files are extracted using UnstructuredPowerPointLoader.
+3. A "Q&A" tab to ask questions; the app retrieves relevant document chunks via FAISS and generates an answer using Gemini (google.generativeai).
+4. A "Document Library" tab listing all uploaded documents filtered by the user’s role, displayed in a table with file type.
+5. All secrets (HF token, Gemini API key, OpenAI API key) come from st.secrets.
 """
-
-# main.py
 
 import os
 import tempfile
 import streamlit as st
 import google.generativeai as genai
-
-from supabase import Client
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema import Document
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from PyPDF2 import PdfReader
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.document_loaders import PyPDFLoader, AsyncHtmlLoader
+from langchain_community.document_transformers import Html2TextTransformer
+from langchain_community.document_loaders import UnstructuredPowerPointLoader
 import pandas as pd
 import faiss
+import nest_asyncio
+from openai import OpenAI
+import yt_dlp
+from component import page_style  # Your custom CSS + sidebar styling
 
-from component import page_style  # your custom CSS + sidebar styling
+# Apply nest_asyncio for AsyncHtmlLoader compatibility
+nest_asyncio.apply()
 
-# ────────────────────────────────────────────────────────────────────────────────
-# 1) Import everything from auth_utils instead of redefining it here
-# ────────────────────────────────────────────────────────────────────────────────
-from auth_utils import (
-    login_or_signup,
-    logout,
-    fetch_uploaded_documents,
-    get_user_role,
+# ------------------------------------------------------------------------------
+# Load secrets
+# ------------------------------------------------------------------------------
+
+HF_TOKEN = st.secrets.get("HF_TOKEN")
+if not HF_TOKEN:
+    st.error("Hugging Face token not found in st.secrets. Please set HF_TOKEN in .streamlit/secrets.toml.")
+    st.stop()
+
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    st.error("Gemini API key not found in st.secrets. Please set GEMINI_API_KEY in .streamlit/secrets.toml.")
+    st.stop()
+
+OPENAI_TRANSCRIPTION_API_KEY = st.secrets.get("OPENAI_TRANSCRIPTION_API_KEY")
+if not OPENAI_TRANSCRIPTION_API_KEY:
+    st.error("OpenAI API key not found in st.secrets. Please set OPENAI_TRANSCRIPTION_API_KEY in .streamlit/secrets.toml for YouTube transcription.")
+    st.stop()
+
+# ------------------------------------------------------------------------------
+# Initialize models and vectorstore
+# ------------------------------------------------------------------------------
+
+# Set Hugging Face token
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = HF_TOKEN
+
+# Configure Gemini
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel("gemini-2.0-flash")  # Using requested model
+
+# Configure OpenAI for YouTube transcription
+openai_client = OpenAI(api_key=OPENAI_TRANSCRIPTION_API_KEY)
+
+# Embedding model for FAISS via LangChain
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-# ────────────────────────────────────────────────────────────────────────────────
-# 2) Load "static" secrets (HF_TOKEN, GEMINI_API_KEY, ALLOWED_SIGNUP_EMAILS)
-# ────────────────────────────────────────────────────────────────────────────────
-HF_TOKEN = st.secrets["HF_TOKEN"]
-GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-ALLOWED_SIGNUP_EMAILS = st.secrets["allowed_signup_emails"]
-
-# ────────────────────────────────────────────────────────────────────────────────
-# 3) Initialize Supabase client (but since auth_utils already did that, you can
-#    if desired import supabase from auth_utils, or just re-create here. We'll
-#    not re-create a second client—it's already in auth_utils.)
-# ────────────────────────────────────────────────────────────────────────────────
-# (Note: We do NOT need to create another supabase client here because auth_utils
-#  already did. If you really want supabase available in main.py, you can do:)
-# from auth_utils import supabase
-
-
-# ────────────────────────────────────────────────────────────────────────────────
-# 4) Configure Gemini & embeddings exactly as before
-# ────────────────────────────────────────────────────────────────────────────────
-os.environ["HF_HOME"] = HF_TOKEN
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-2.0-flash")
-
-embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-prompt = ChatPromptTemplate.from_template(
+# Prompt template for answer generation
+template = (
     "Based on the following information, provide a concise answer to the question:\n\n"
     "Information:\n{context}\n\n"
     "Question: {question}\n\n"
-    "Answer concisely in 50-75 words."
+    "You must answer in the language of the question (e.g., English if the question is in English, Malay if in Malay).\n"
+    "Answer concisely in 50-75 words:"
 )
+prompt = ChatPromptTemplate.from_template(template)
 
+# Directory to persist the FAISS index
 FAISS_DIR = "faiss_index"
+
+# Initialize or load LangChain FAISS vectorstore in session_state
 if "vectorstore" not in st.session_state:
     try:
         if os.path.isdir(FAISS_DIR):
-            vs = FAISS.load_local(FAISS_DIR, embedding_model, allow_dangerous_deserialization=True)
+            # Load existing index
+            vs = FAISS.load_local(
+                FAISS_DIR, embedding_model, allow_dangerous_deserialization=True
+            )
         else:
-            # Create an empty FAISS index manually
-            dummy_embedding = embedding_model.embed_query(" ")
-            dim = len(dummy_embedding)
-            index = faiss.IndexFlatL2(dim)
-            vs = FAISS(embedding_model, index, {}, [])
+            # Create a new FAISS index with a compatible docstore
+            from langchain_community.docstore.in_memory import InMemoryDocstore
+            embedding_dim = len(embedding_model.embed_query("test"))
+            index = faiss.IndexFlatL2(embedding_dim)
+            vs = FAISS(
+                embedding_function=embedding_model,
+                index=index,
+                docstore=InMemoryDocstore(),
+                index_to_docstore_id={}
+            )
             vs.save_local(FAISS_DIR)
-
         st.session_state.vectorstore = vs
-
     except Exception as e:
-        st.error(f"Error initializing FAISS: {e}")
-        dummy_embedding = embedding_model.embed_query(" ")
-        dim = len(dummy_embedding)
-        index = faiss.IndexFlatL2(dim)
-        vs = FAISS(embedding_model, index, {}, [])
+        st.error(f"Error initializing FAISS vectorstore: {e}")
+        # Fallback to a new index
+        from langchain_community.docstore.in_memory import InMemoryDocstore
+        embedding_dim = len(embedding_model.embed_query("test"))
+        index = faiss.IndexFlatL2(embedding_dim)
+        vs = FAISS(
+            embedding_function=embedding_model,
+            index=index,
+            docstore=InMemoryDocstore(),
+            index_to_docstore_id={}
+        )
         vs.save_local(FAISS_DIR)
         st.session_state.vectorstore = vs
 
+# ------------------------------------------------------------------------------
+# Utility Functions
+# ------------------------------------------------------------------------------
 
-# ────────────────────────────────────────────────────────────────────────────────
-# 5) Everything else in main.py remains exactly as you had it, except the login
-#    block is replaced by a single import‐and‐call.
-# ────────────────────────────────────────────────────────────────────────────────
+def cleanup_temp_file(file_path: str):
+    """Delete a temporary file."""
+    try:
+        os.unlink(file_path)
+    except Exception as e:
+        st.warning(f"Failed to delete temporary file {file_path}: {e}")
 
-# a) Apply CSS
+def extract_text_from_pdf(file_path: str) -> str:
+    """Extract text from a PDF file using PyPDFLoader."""
+    try:
+        loader = PyPDFLoader(file_path, extract_images=True)
+        pages = loader.load()
+        text = " ".join(page.page_content for page in pages)
+        if not text.strip():
+            st.warning("No text could be extracted from the PDF.")
+        return text
+    except Exception as e:
+        st.error(f"Error extracting text from PDF: {e}")
+        return ""
+
+def extract_text_from_csv(file_path: str) -> str:
+    """Convert CSV file to plain text by concatenating all fields."""
+    try:
+        df = pd.read_csv(file_path)
+        text = " ".join(df.astype(str).apply(lambda row: " ".join(row.values), axis=1))
+        if not text.strip():
+            st.warning("No text could be extracted from the CSV.")
+        return text
+    except Exception as e:
+        st.error(f"Error extracting text from CSV: {e}")
+        return ""
+
+def extract_text_from_excel(file_path: str) -> str:
+    """Convert Excel file to plain text by concatenating all cells."""
+    try:
+        df = pd.read_excel(file_path, engine="openpyxl")
+        text = " ".join(df.astype(str).apply(lambda row: " ".join(row.values), axis=1))
+        if not text.strip():
+            st.warning("No text could be extracted from the Excel file.")
+        return text
+    except Exception as e:
+        st.error(f"Error extracting text from Excel: {e}")
+        return ""
+
+def extract_text_from_pptx(file_path: str) -> str:
+    """Extract text from a PowerPoint file using UnstructuredPowerPointLoader."""
+    try:
+        loader = UnstructuredPowerPointLoader(file_path, mode="elements")
+        pages = loader.load()
+        text = " ".join(page.page_content for page in pages)
+        if not text.strip():
+            st.warning("No text could be extracted from the PowerPoint file.")
+        return text
+    except Exception as e:
+        st.error(f"Error extracting text from PowerPoint: {e}")
+        return ""
+
+def extract_text_from_website(url: str) -> str:
+    """Extract text from a website URL using AsyncHtmlLoader and Html2TextTransformer."""
+    try:
+        loader = AsyncHtmlLoader([url])
+        docs = loader.load()
+        html2text = Html2TextTransformer()
+        docs_transformed = html2text.transform_documents(docs)
+        text = docs_transformed[0].page_content if docs_transformed else ""
+        if not text.strip():
+            st.warning(f"No text could be extracted from the website: {url}")
+        return text
+    except Exception as e:
+        st.error(f"Error extracting text from website {url}: {e}")
+        return ""
+
+def extract_text_from_youtube(url: str) -> str:
+    """Extract transcript from a YouTube video using yt-dlp and OpenAI Whisper."""
+    try:
+        # Download audio using yt-dlp
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio:
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'outtmpl': tmp_audio.name.replace(".mp3", ""),
+                'quiet': True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            # Transcribe audio using OpenAI Whisper
+            with open(tmp_audio.name, "rb") as audio_file:
+                transcript = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file
+                )
+            text = transcript.text
+            cleanup_temp_file(tmp_audio.name)
+            if not text.strip():
+                st.warning(f"No transcript could be extracted from the YouTube video: {url}")
+            return text
+    except Exception as e:
+        st.error(f"Error extracting transcript from YouTube video {url}: {e}")
+        return ""
+
+def chunk_text(text: str, max_words: int = 500) -> list[tuple[int, str]]:
+    """Break text into chunks of approximately max_words words."""
+    sentences = text.split(". ")
+    chunks = []
+    current = ""
+    chunk_index = 0
+    for sent in sentences:
+        if len(current.split()) + len(sent.split()) > max_words:
+            chunks.append((chunk_index, current.strip()))
+            chunk_index += 1
+            current = sent + ". "
+        else:
+            current += sent + ". "
+    if current.strip():
+        chunks.append((chunk_index, current.strip()))
+    return chunks
+
+def index_document_in_vectorstore(doc_id: int, text: str):
+    """Add document chunks to the FAISS vectorstore and persist."""
+    try:
+        chunks = chunk_text(text)
+        documents = []
+        for idx, chunk in chunks:
+            metadata = {"doc_id": doc_id, "chunk_index": idx}
+            documents.append(Document(page_content=chunk, metadata=metadata))
+        if documents:
+            st.session_state.vectorstore.add_documents(documents)
+            st.session_state.vectorstore.save_local(FAISS_DIR)
+    except Exception as e:
+        st.error(f"Error indexing document into FAISS: {e}")
+
+def index_file(doc_id: int, file_path: str, file_type: str):
+    """Index content based on file type."""
+    text = ""
+    if file_type == "pdf":
+        text = extract_text_from_pdf(file_path)
+    elif file_type == "txt":
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+    elif file_type == "csv":
+        text = extract_text_from_csv(file_path)
+    elif file_type == "xlsx":
+        text = extract_text_from_excel(file_path)
+    elif file_type == "pptx":
+        text = extract_text_from_pptx(file_path)
+    if text.strip():
+        index_document_in_vectorstore(doc_id, text)
+
+def index_url(doc_id: int, url: str, input_type: str):
+    """Index content from a website or YouTube URL."""
+    text = extract_text_from_website(url) if input_type == "website" else extract_text_from_youtube(url)
+    if text.strip():
+        index_document_in_vectorstore(doc_id, text)
+
+def generate_answer_with_gemini(question: str, context: str) -> str:
+    """Generate an answer using Gemini."""
+    try:
+        input_prompt = prompt.format(context=context, question=question)
+        response = gemini_model.generate_content(input_prompt)
+        return response.text
+    except Exception as e:
+        st.error(f"Error generating answer with Gemini: {e}")
+        return "Unable to generate answer."
+
+def search_vectorstore(question: str, top_k: int = 3) -> str:
+    """Retrieve top_k relevant chunks from FAISS, filtered by user role."""
+    try:
+        docs = st.session_state.vectorstore.similarity_search(question, k=top_k)
+        current_role = st.session_state["user_role"]
+        filtered_docs = [
+            doc for doc in docs
+            if any(
+                d["doc_id"] == doc.metadata["doc_id"] and d["role"] == current_role
+                for d in st.session_state["uploaded_docs"]
+            )
+        ]
+        contexts = [doc.page_content for doc in filtered_docs]
+        return "\n---\n".join(contexts) if contexts else ""
+    except Exception as e:
+        st.error(f"Error searching vectorstore: {e}")
+        return ""
+
+# ------------------------------------------------------------------------------
+# Streamlit App: Role Selection & Tabs
+# ------------------------------------------------------------------------------
+
+# Apply custom styles
 page_style()
 
 st.title("RAG Knowledge System")
 
-# b) Ensure session_state keys exist
-if "user_email" not in st.session_state:
-    st.session_state["user_email"] = None
+# Initialize session_state keys
 if "user_role" not in st.session_state:
     st.session_state["user_role"] = None
 if "uploaded_docs" not in st.session_state:
+    # Each entry: {"doc_id": int, "filename": str, "path": str, "role": str, "type": str}
     st.session_state["uploaded_docs"] = []
 
+# Role selection
+st.sidebar.header("Select Your Role")
+role_choice = st.sidebar.selectbox("Role:", ["worker", "manager", "admin"])
+st.session_state["user_role"] = role_choice
 
-# ────────────────────────────────────────────────────────────────────────────────
-# 6) Instead of embedding login/signup code here, simply call the imported helper
-# ────────────────────────────────────────────────────────────────────────────────
-if not st.session_state.get("user_email"):
-    login_or_signup(ALLOWED_SIGNUP_EMAILS)
-    st.stop()
+# Main Tabs
+tab1, tab2, tab3 = st.tabs(
+    ["📤 Main (Upload)", "❓ Q&A", "📚 Document Library"]
+)
 
-
-# ────────────────────────────────────────────────────────────────────────────────
-# 7) Sidebar: user info, logout, and “Previously Uploaded Documents”
-# ────────────────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown(f"**Logged in as:** {st.session_state['user_email']}")
-    st.markdown(f"**Role:** {st.session_state['user_role']}")
-    if st.button("Logout"):
-        logout()
-
-    st.markdown("---")
-    st.markdown("### 📂 Previously Uploaded Documents")
-    if st.session_state["uploaded_docs"]:
-        for doc in st.session_state["uploaded_docs"]:
-            st.markdown(f"- {doc['filename']}  (Role: {doc['role']})")
-    else:
-        st.markdown("No documents found.")
-    st.markdown("---")
-    st.markdown("ℹ️ Documents are fetched on login and cached in session state.")
-
-
-# ────────────────────────────────────────────────────────────────────────────────
-# 8) The “three‐tab” interface (Main, Q&A, Document Library) remains untouched
-# ────────────────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["📤 Main (Upload)", "❓ Q&A", "📚 Document Library"])
-
-# ---- Main (Upload) ----
+# ---------------------------- Main (Upload) -----------------------------------
 with tab1:
-    st.header("Upload Documents")
-    st.write("Upload `.txt`, `.pdf`, `.csv`, or `.xlsx` files and assign role-based access.")
+    st.header("Upload Documents or URLs")
+    st.write("Upload .txt, .pdf, .csv, .xlsx, .pptx files, or input website/YouTube URLs, and assign role-based access.")
 
-    uploaded_file = st.file_uploader(
-        "Select a file", type=["txt", "pdf", "csv", "xlsx"], accept_multiple_files=False
-    )
+    input_type = st.selectbox("Input Type:", ["File", "Website URL", "YouTube URL"])
     assigned_role = st.selectbox("Assign access to role", ["worker", "manager", "admin"])
 
-    if uploaded_file:
-        st.markdown(f"**File:** {uploaded_file.name}  |  **Size:** {uploaded_file.size // 1024} KB")
+    if input_type == "File":
+        uploaded_file = st.file_uploader(
+            "Select a file",
+            type=["txt", "pdf", "csv", "xlsx", "pptx"],
+            accept_multiple_files=False,
+        )
+        if uploaded_file:
+            st.markdown(
+                f"**File:** {uploaded_file.name}  |  **Size:** {uploaded_file.size // 1024} KB"
+            )
+            if st.button("Upload and Index"):
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=f"_{uploaded_file.name}"
+                ) as tmp:
+                    tmp.write(uploaded_file.read())
+                    tmp.flush()
+                    tmp_path = tmp.name
 
-        if st.button("Upload and Index"):
-            # (1) Write bytes to a temp file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{uploaded_file.name}") as tmp:
-                tmp.write(uploaded_file.read())
-                tmp.flush()
-                tmp_path = tmp.name
+                doc_id = len(st.session_state["uploaded_docs"]) + 1
+                file_type = {
+                    "application/pdf": "pdf",
+                    "text/plain": "txt",
+                    "text/csv": "csv",
+                    "application/vnd.ms-excel": "xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+                }.get(uploaded_file.type, "unknown")
 
-            # (2) Upload the temp file to Supabase
-            from auth_utils import upload_file_to_supabase  # import helper
-            storage_path = f"{assigned_role}/{uploaded_file.name}"
-            saved = upload_file_to_supabase(tmp_path, storage_path, uploaded_file.type)
-            if not saved:
-                st.stop()
-
-            # (3) Extract text for indexing
-            if uploaded_file.type == "application/pdf":
-                text = extract_text_from_pdf(tmp_path)
-            elif uploaded_file.type == "text/plain":
-                text = open(tmp_path, "r", encoding="utf-8", errors="ignore").read()
-            elif uploaded_file.type == "text/csv":
-                text = extract_text_from_csv(tmp_path)
-            elif uploaded_file.type in [
-                "application/vnd.ms-excel",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ]:
-                text = extract_text_from_excel(tmp_path)
-            else:
-                st.error("Unsupported file type.")
-                text = ""
-
-            if text:
-                try:
-                    res = (
-                        supabase.table("documents")
-                        .insert({
+                if file_type != "unknown":
+                    index_file(doc_id, tmp_path, file_type)
+                    st.success(f"{file_type.upper()} file indexed into FAISS.")
+                    st.session_state["uploaded_docs"].append(
+                        {
+                            "doc_id": doc_id,
                             "filename": uploaded_file.name,
-                            "storage_path": storage_path,
+                            "path": tmp_path,
                             "role": assigned_role,
-                            "uploaded_by": st.session_state["user_email"],
-                        })
-                        .execute()
+                            "type": file_type,
+                        }
                     )
-                except Exception as e:
-                    st.error(f"Error inserting metadata: {e}")
-                    text = ""
+                    st.success(
+                        f"{file_type.upper()} '{uploaded_file.name}' uploaded for role '{assigned_role}'."
+                    )
+                    cleanup_temp_file(tmp_path)
                 else:
-                    if not res or res.data is None:
-                        st.error("Error inserting metadata (no data returned).")
-                        text = ""
-                    else:
-                        doc_id = res.data[0].get("id")
-                        st.success(f"Document metadata saved with ID {doc_id}.")
+                    st.error("Unsupported file type.")
+                    cleanup_temp_file(tmp_path)
 
-                        # (4) Insert chunks into `document_chunks`
-                        chunks = chunk_text(text)
-                        for idx, chunk_text in chunks:
-                            try:
-                                supabase.table("document_chunks").insert({
-                                    "doc_id": doc_id,
-                                    "chunk_index": idx,
-                                    "chunk_text": chunk_text,
-                                }).execute()
-                            except Exception:
-                                pass
-                        st.info(f"Inserted {len(chunks)} chunks into Supabase.")
+    else:  # Website or YouTube URL
+        url_input = st.text_input(f"Enter {input_type}:")
+        if url_input and st.button("Index URL"):
+            doc_id = len(st.session_state["uploaded_docs"]) + 1
+            index_url(doc_id, url_input, input_type.lower().replace(" ", "_"))
+            st.success(f"{input_type} indexed into FAISS.")
+            st.session_state["uploaded_docs"].append(
+                {
+                    "doc_id": doc_id,
+                    "filename": url_input,
+                    "path": None,  # No local file for URLs
+                    "role": assigned_role,
+                    "type": input_type.lower().replace(" ", "_"),
+                }
+            )
+            st.success(
+                f"{input_type} '{url_input}' indexed for role '{assigned_role}'."
+            )
 
-                        # (5) Index into FAISS
-                        index_document_in_vectorstore(doc_id, text)
-                        st.success("Document indexed in FAISS.")
-
-                        # (6) Refresh session_state cache
-                        fetch_uploaded_documents()
-
-
-# ---- Q&A ----
+# -------------------------------- Q&A ----------------------------------------
 with tab2:
     st.header("Ask a Question")
     st.write("Ask a question and get answers based on your uploaded documents.")
     question = st.text_input("Enter your question here:")
     if st.button("Get Answer"):
-        if question:
+        if not question:
+            st.warning("⚠️ Please enter a question to get started.")
+        else:
             context = search_vectorstore(question, top_k=3)
-            if context:
+            if context.strip():
                 answer = generate_answer_with_gemini(question, context)
                 st.subheader("Answer:")
                 st.write(answer)
@@ -262,20 +430,42 @@ with tab2:
                 st.write(context)
             else:
                 st.warning("No relevant context found. Try uploading more documents.")
-        else:
-            st.warning("⚠️ Please enter a question to get started.")
 
-
-# ---- Document Library ----
+# ------------------------- Document Library ----------------------------------
 with tab3:
     st.header("Document Library")
     st.write("List of documents you have access to based on your role.")
-    docs = st.session_state["uploaded_docs"]
+
+    current_role = st.session_state["user_role"]
+    docs = [
+        doc for doc in st.session_state["uploaded_docs"]
+        if doc["role"] == current_role
+    ]
+
     if not docs:
         st.info("No documents available for your role.")
     else:
+        # Display documents in a table
+        table_data = [
+            {
+                "Filename/URL": doc["filename"],
+                "Role": doc["role"],
+                "Type": doc["type"].upper() if doc["type"] in ["pdf", "txt", "csv", "xlsx", "pptx"] else doc["type"].replace("_", " ").title()
+            }
+            for doc in docs
+        ]
+        st.table(table_data)
+
+        # Display download buttons for file-based documents
         for doc in docs:
-            st.markdown(f"**{doc['filename']}** (Role: {doc['role']})")
-            if st.button(f"Download {doc['filename']}", key=f"download_{doc['id']}"):
-                url = supabase.storage.from_("documents").get_public_url(doc["storage_path"])
-                st.write(f"[Click here to download]({url})")
+            if doc["path"]:  # Only files have a path
+                st.markdown(f"**{doc['filename']}** (Role: {doc['role']}, Type: {doc['type'].upper()})")
+                with open(doc["path"], "rb") as f:
+                    file_data = f.read()
+                st.download_button(
+                    label=f"Download {doc['filename']}",
+                    data=file_data,
+                    file_name=doc["filename"],
+                )
+            else:  # URLs
+                st.markdown(f"**{doc['filename']}** (Role: {doc['role']}, Type: {doc['type'].replace('_', ' ').title()})")
