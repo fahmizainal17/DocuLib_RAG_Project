@@ -1,24 +1,25 @@
 """
-Streamlit RAG Knowledge System with Role-Based Access and Password Authentication
+Streamlit RAG Knowledge System with Role-Based Access and st.secrets
 
 This Streamlit app provides:
-1. Role-based access control with password authentication for "admin", "manager", or "worker" roles.
-   - Admin: Access all files (admin, manager, worker).
-   - Manager: Access manager and worker files.
-   - Worker: Access worker files only.
-   - Passwords stored in st.secrets (ADMIN_PASSWORD, MANAGER_PASSWORD, WORKER_PASSWORD).
-2. A "Main" tab for role login and to upload .txt, .pdf, .csv, .xlsx, .pptx files, or input website/YouTube URLs, indexed into FAISS via LangChain.
+1. Role-based access control: documents can be tagged as "admin", "manager", or "worker".
+2. A "Main" tab to upload .txt, .pdf, .csv, .xlsx, .pptx files, or input website URLs or YouTube links, which are immediately indexed into FAISS via LangChain.
    - PDF text is extracted by PyPDFLoader and manually chunked (~500 words).
    - Website content is extracted using AsyncHtmlLoader and Html2TextTransformer.
    - YouTube videos are transcribed using yt-dlp and OpenAI Whisper.
    - PowerPoint files are extracted using UnstructuredPowerPointLoader.
-3. A "Q&A" tab to ask questions, retrieving relevant document chunks via FAISS and generating answers using Gemini (google.generativeai).
-4. A "Document Library" tab listing uploaded documents filtered by user role, displayed in a table with file type.
-5. All secrets (HF token, Gemini API key, OpenAI API key, passwords) come from st.secrets.
+3. A "Q&A" tab to ask questions; the app retrieves relevant document chunks via FAISS and generates an answer using Gemini (google.generativeai).
+4. A "Document Library" tab listing all uploaded documents filtered by the user’s role, displayed in a table with file type.
+5. All secrets (HF token, Gemini API key, OpenAI API key) come from st.secrets.
 """
 
 import os
 import shutil
+
+# Set environment variables at the very top
+os.environ["USER_AGENT"] = "DocuLibRAG/1.0 (fahmizainals9@gmail.com)"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Disable parallelism to avoid tokenizers warning
+
 import tempfile
 import streamlit as st
 import google.generativeai as genai
@@ -34,14 +35,10 @@ import faiss
 import nest_asyncio
 from openai import OpenAI
 import yt_dlp
-from component import page_style 
+from component import page_style  # Your custom CSS + sidebar styling
 
 # Apply nest_asyncio for AsyncHtmlLoader compatibility
 nest_asyncio.apply()
-
-# Set environment variables
-os.environ["USER_AGENT"] = "DocuLibRAG/1.0 (fahmizainals9@gmail.com)"
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # ------------------------------------------------------------------------------
 # Load secrets
@@ -59,14 +56,7 @@ if not GEMINI_API_KEY:
 
 OPENAI_TRANSCRIPTION_API_KEY = st.secrets.get("OPENAI_TRANSCRIPTION_API_KEY")
 if not OPENAI_TRANSCRIPTION_API_KEY:
-    st.error("OpenAI API key not found in st.secrets. Please set OPENAI_TRANSCRIPTION_API_KEY in .streamlit/secrets.toml.")
-    st.stop()
-
-ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD")
-MANAGER_PASSWORD = st.secrets.get("MANAGER_PASSWORD")
-WORKER_PASSWORD = st.secrets.get("WORKER_PASSWORD")
-if not all([ADMIN_PASSWORD, MANAGER_PASSWORD, WORKER_PASSWORD]):
-    st.error("Role passwords not found in st.secrets. Please set ADMIN_PASSWORD, MANAGER_PASSWORD, and WORKER_PASSWORD in .streamlit/secrets.toml.")
+    st.error("OpenAI API key not found in st.secrets. Please set OPENAI_TRANSCRIPTION_API_KEY in .streamlit/secrets.toml for YouTube transcription.")
     st.stop()
 
 # ------------------------------------------------------------------------------
@@ -78,13 +68,15 @@ os.environ["HUGGINGFACEHUB_API_TOKEN"] = HF_TOKEN
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+gemini_model = genai.GenerativeModel("gemini-2.0-flash")  # Using requested model
 
 # Configure OpenAI for YouTube transcription
 openai_client = OpenAI(api_key=OPENAI_TRANSCRIPTION_API_KEY)
 
 # Embedding model for FAISS via LangChain
-embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+)
 
 # Prompt template for answer generation
 template = (
@@ -163,7 +155,7 @@ def clear_faiss_index():
         )
         vs.save_local(FAISS_DIR)
         st.session_state.vectorstore = vs
-        st.session_state.uploaded_docs = []
+        st.session_state["uploaded_docs"] = []
         st.success("FAISS index and document list cleared successfully.")
     except Exception as e:
         st.error(f"Error clearing FAISS index: {e}")
@@ -236,6 +228,7 @@ def extract_text_from_website(url: str) -> str:
 def extract_text_from_youtube(url: str) -> str:
     """Extract transcript from a YouTube video using yt-dlp and OpenAI Whisper."""
     try:
+        # Download audio using yt-dlp
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio:
             ydl_opts = {
                 'format': 'bestaudio/best',
@@ -249,6 +242,7 @@ def extract_text_from_youtube(url: str) -> str:
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
+            # Transcribe audio using OpenAI Whisper
             with open(tmp_audio.name, "rb") as audio_file:
                 transcript = openai_client.audio.transcriptions.create(
                     model="whisper-1",
@@ -280,7 +274,7 @@ def chunk_text(text: str, max_words: int = 500) -> list[tuple[int, str]]:
         chunks.append((chunk_index, current.strip()))
     return chunks
 
-def index_document_in_vectorstore(doc_id: str, text: str):
+def index_document_in_vectorstore(doc_id: int, text: str):
     """Add document chunks to the FAISS vectorstore and persist."""
     try:
         chunks = chunk_text(text)
@@ -294,7 +288,7 @@ def index_document_in_vectorstore(doc_id: str, text: str):
     except Exception as e:
         st.error(f"Error indexing document into FAISS: {e}")
 
-def index_file(doc_id: str, file_path: str, file_type: str, file_data: bytes):
+def index_file(doc_id: int, file_path: str, file_type: str, file_data: bytes):
     """Index content based on file type and return file data."""
     text = ""
     if file_type == "pdf":
@@ -312,7 +306,7 @@ def index_file(doc_id: str, file_path: str, file_type: str, file_data: bytes):
         index_document_in_vectorstore(doc_id, text)
     return file_data
 
-def index_url(doc_id: str, url: str, input_type: str):
+def index_url(doc_id: int, url: str, input_type: str):
     """Index content from a website or YouTube URL with validation."""
     if input_type == "website_url":
         if not url.lower().startswith(("http://", "https://")):
@@ -329,8 +323,8 @@ def index_url(doc_id: str, url: str, input_type: str):
         return
     if text.strip():
         index_document_in_vectorstore(doc_id, text)
-        return True
-    return False
+        return True  # Indicate successful indexing
+    return False  # Indicate failed indexing
 
 def generate_answer_with_gemini(question: str, context: str) -> str:
     """Generate an answer using Gemini."""
@@ -346,15 +340,13 @@ def search_vectorstore(question: str, top_k: int = 3) -> str:
     """Retrieve top_k relevant chunks from FAISS, filtered by user role and current session documents."""
     try:
         docs = st.session_state.vectorstore.similarity_search(question, k=top_k)
-        current_role = st.session_state.get("user_role")
-        current_doc_ids = set(d["doc_id"] for d in st.session_state.get("uploaded_docs", []))
-        allowed_roles = {"admin": ["admin", "manager", "worker"], "manager": ["manager", "worker"], "worker": ["worker"]}
-        accessible_roles = allowed_roles.get(current_role, [])
+        current_role = st.session_state["user_role"]
+        current_doc_ids = set(d["doc_id"] for d in st.session_state["uploaded_docs"])
         filtered_docs = [
             doc for doc in docs
             if doc.metadata["doc_id"] in current_doc_ids and any(
-                d["doc_id"] == doc.metadata["doc_id"] and d["role"] in accessible_roles
-                for d in st.session_state.get("uploaded_docs", [])
+                d["doc_id"] == doc.metadata["doc_id"] and d["role"] == current_role
+                for d in st.session_state["uploaded_docs"]
             )
         ]
         contexts = [doc.page_content for doc in filtered_docs]
@@ -364,7 +356,7 @@ def search_vectorstore(question: str, top_k: int = 3) -> str:
         return ""
 
 # ------------------------------------------------------------------------------
-# Streamlit App
+# Streamlit App: Role Selection & Tabs
 # ------------------------------------------------------------------------------
 
 # Apply custom styles
@@ -374,167 +366,160 @@ st.title("RAG Knowledge System")
 
 # Initialize session_state keys
 if "user_role" not in st.session_state:
-    st.session_state.user_role = None
+    st.session_state["user_role"] = None
 if "uploaded_docs" not in st.session_state:
-    st.session_state.uploaded_docs = []
-if "login_status" not in st.session_state:
-    st.session_state.login_status = False
+    # Each entry: {"doc_id": int, "filename": str, "path": str, "role": str, "type": str, "file_data": bytes}
+    st.session_state["uploaded_docs"] = []
 
-# Role Selection and Login
-def handle_login():
-    role = st.session_state.role_select
-    password = st.session_state.password_input
-    password_map = {
-        "admin": ADMIN_PASSWORD,
-        "manager": MANAGER_PASSWORD,
-        "worker": WORKER_PASSWORD
-    }
-    if password == password_map.get(role.lower()):
-        st.session_state.user_role = role.lower()
-        st.session_state.login_status = True
-        st.success(f"Logged in as {role}.")
-    else:
-        st.error("Incorrect password. Please try again.")
+# Role selection
+st.sidebar.header("Select Your Role")
+role_choice = st.sidebar.selectbox("Role:", ["worker", "manager", "admin"])
+st.session_state["user_role"] = role_choice
 
-if not st.session_state.login_status:
-    with st.form(key="login_form"):
-        st.subheader("Login")
-        st.session_state.role_select = st.selectbox("Select Role:", ["Admin", "Manager", "Worker"])
-        st.session_state.password_input = st.text_input("Enter Password:", type="password")
-        submit = st.form_submit_button("Login")
-        if submit:
-            handle_login()
-else:
-    st.write(f"Logged in as: {st.session_state.user_role.capitalize()}")
-    if st.button("Logout"):
-        st.session_state.user_role = None
-        st.session_state.login_status = False
-        st.success("Logged out successfully.")
-        st.rerun()
+# Main Tabs
+tab1, tab2, tab3 = st.tabs(
+    ["📤 Main (Upload)", "Q&A❓", "📚 Document Library"]
+)
 
-# Show tabs only if logged in
-if st.session_state.login_status:
-    tab1, tab2, tab3 = st.tabs(["📤 Main (Upload)", "❓ Q&A", "📚 Document Library"])
+# ---------------------------- Main (Upload) -----------------------------------
+with tab1:
+    st.header("Upload Documents or URLs")
+    st.write("Upload .txt, .pdf, .csv, .xlsx, .pptx files, or input website/YouTube URLs, and assign role-based access.")
 
-    # ---------------------------- Main (Upload) -----------------------------------
-    with tab1:
-        st.header("Upload Documents or URLs")
-        st.write("Upload .txt, .pdf, .csv, .xlsx, .pptx files, or input website/YouTube URLs, and assign role-based access.")
+    # Add button to clear FAISS index
+    if st.button("Clear Embeddings"):
+        clear_faiss_index()
 
-        if st.button("Clear Embeddings"):
-            clear_faiss_index()
+    input_type = st.selectbox("Input Type:", ["File", "Website URL", "YouTube URL"])
+    assigned_role = st.selectbox("Assign access to role", ["worker", "manager", "admin"])
 
-        input_type = st.selectbox("Input Type:", ["File", "Website URL", "YouTube URL"])
-        assigned_role = st.selectbox("Assign access to role:", ["worker", "manager", "admin"])
-
-        if input_type == "File":
-            uploaded_file = st.file_uploader(
-                "Select a file",
-                type=["txt", "pdf", "csv", "xlsx", "pptx"],
-                accept_multiple_files=False
+    if input_type == "File":
+        uploaded_file = st.file_uploader(
+            "Select a file",
+            type=["txt", "pdf", "csv", "xlsx", "pptx"],
+            accept_multiple_files=False,
+        )
+        if uploaded_file:
+            st.markdown(
+                f"**File:** {uploaded_file.name}  |  **Size:** {uploaded_file.size // 1024} KB"
             )
-            if uploaded_file:
-                st.markdown(f"**File:** {uploaded_file.name} | **Size:** {uploaded_file.size // 1024} KB")
-                if st.button("Upload and Index"):
-                    file_data = uploaded_file.read()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{uploaded_file.name}") as tmp:
-                        tmp.write(file_data)
-                        tmp.flush()
-                        tmp_path = tmp.name
+            if st.button("Upload and Index"):
+                # Read file data before writing to temporary file
+                file_data = uploaded_file.read()
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=f"_{uploaded_file.name}"
+                ) as tmp:
+                    tmp.write(file_data)
+                    tmp.flush()
+                    tmp_path = tmp.name
 
-                    doc_id = f"file_{len(st.session_state.uploaded_docs) + 1}"
-                    file_type = {
-                        "application/pdf": "pdf",
-                        "text/plain": "txt",
-                        "text/csv": "csv",
-                        "application/vnd.ms-excel": "xlsx",
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-                        "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-                    }.get(uploaded_file.type, "unknown")
+                doc_id = len(st.session_state["uploaded_docs"]) + 1
+                file_type = {
+                    "application/pdf": "pdf",
+                    "text/plain": "txt",
+                    "text/csv": "csv",
+                    "application/vnd.ms-excel": "xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+                }.get(uploaded_file.type, "unknown")
 
-                    if file_type != "unknown":
-                        file_data = index_file(doc_id, tmp_path, file_type, file_data)
-                        st.success(f"{file_type.upper()} file indexed into FAISS.")
-                        st.session_state.uploaded_docs.append({
+                if file_type != "unknown":
+                    file_data = index_file(doc_id, tmp_path, file_type, file_data)
+                    st.success(f"{file_type.upper()} file indexed into FAISS.")
+                    st.session_state["uploaded_docs"].append(
+                        {
                             "doc_id": doc_id,
                             "filename": uploaded_file.name,
                             "path": tmp_path,
                             "role": assigned_role,
                             "type": file_type,
-                            "file_data": file_data,
-                        })
-                        st.success(f"{file_type.upper()} '{uploaded_file.name}' uploaded for role '{assigned_role}'.")
-                    else:
-                        st.error("Unsupported file type.")
-                        cleanup_temp_file(tmp_path)
+                            "file_data": file_data,  # Store file data
+                        }
+                    )
+                    st.success(
+                        f"{file_type.upper()} '{uploaded_file.name}' uploaded for role '{assigned_role}'."
+                    )
+                    # Do not clean up the temp file immediately
+                    # cleanup_temp_file(tmp_path)
+                else:
+                    st.error("Unsupported file type.")
+                    cleanup_temp_file(tmp_path)
 
-        else:
-            url_input = st.text_input(f"Enter {input_type}:")
-            if url_input and st.button("Index URL"):
-                doc_id = f"url_{len(st.session_state.uploaded_docs) + 1}"
-                if index_url(doc_id, url_input, input_type.lower().replace(" ", "_")):
-                    st.session_state.uploaded_docs.append({
+    else:  # Website or YouTube URL
+        url_input = st.text_input(f"Enter {input_type}:")
+        if url_input and st.button("Index URL"):
+            doc_id = len(st.session_state["uploaded_docs"]) + 1
+            if index_url(doc_id, url_input, input_type.lower().replace(" ", "_")):
+                st.session_state["uploaded_docs"].append(
+                    {
                         "doc_id": doc_id,
                         "filename": url_input,
-                        "path": None,
+                        "path": None,  # No local file for URLs
                         "role": assigned_role,
                         "type": input_type.lower().replace(" ", "_"),
-                        "file_data": None,
-                    })
-                    st.success(f"{input_type} '{url_input}' indexed for role '{assigned_role}'.")
-
-    # -------------------------------- Q&A ----------------------------------------
-    with tab2:
-        st.header("Ask a Question")
-        st.write("Ask a question and get answers based on your uploaded documents.")
-        question = st.text_input("Enter your question here:")
-        if st.button("Get Answer"):
-            if not question:
-                st.warning("⚠️ Please enter a question to get started.")
-            else:
-                context = search_vectorstore(question, top_k=3)
-                if context.strip():
-                    answer = generate_answer_with_gemini(question, context)
-                    st.subheader("Answer:")
-                    st.write(answer)
-                else:
-                    st.warning("No relevant context found. Try uploading more documents.")
-
-    # ------------------------- Document Library ----------------------------------
-    with tab3:
-        st.header("Document Library")
-        st.write("List of documents you have access to based on your role.")
-
-        current_role = st.session_state.get("user_role")
-        uploaded_docs = st.session_state.get("uploaded_docs", [])
-        allowed_roles = {"admin": ["admin", "manager", "worker"], "manager": ["manager", "worker"], "worker": ["worker"]}
-        accessible_roles = allowed_roles.get(current_role, [])
-        docs = [doc for doc in uploaded_docs if doc["role"] in accessible_roles]
-
-        if not docs:
-            st.info("No documents available for your role.")
-        else:
-            table_data = []
-            for doc in docs:
-                type_label = (
-                    doc["type"].upper() if doc["type"] in ["pdf", "txt", "csv", "xlsx", "pptx"]
-                    else doc["type"].replace("_", " ").title()
+                        "file_data": None,  # No file data for URLs
+                    }
                 )
-                table_data.append({
-                    "Filename/URL": doc["filename"],
-                    "Role": doc["role"],
-                    "Type": type_label
-                })
-            df = pd.DataFrame(table_data)
-            df.index += 1
-            df.index.name = "No"
-            st.table(df)
+                st.success(f"{input_type} '{url_input}' indexed for role '{assigned_role}'.")
 
-            for doc in docs:
-                if doc.get("file_data"):
-                    st.download_button(
-                        label=f"Download {doc['filename']}",
-                        data=doc["file_data"],
-                        file_name=doc["filename"],
-                        key=f"dl_{doc['filename']}"
-                    )
+# -------------------------------- Q&A ----------------------------------------
+with tab2:
+    st.header("Ask a Question")
+    st.write("Ask a question and get answers based on your uploaded documents.")
+    question = st.text_input("Enter your question here:")
+    if st.button("Get Answer"):
+        if not question:
+            st.warning("⚠️ Please enter a question to get started.")
+        else:
+            context = search_vectorstore(question, top_k=3)
+            if context.strip():
+                answer = generate_answer_with_gemini(question, context)
+                st.subheader("Answer:")
+                st.write(answer)
+            else:
+                st.warning("No relevant context found. Try uploading more documents.")
+
+# ------------------------- Document Library ----------------------------------
+with tab3:
+    st.header("Document Library")
+    st.write("List of documents you have access to based on your role.")
+
+    current_role = st.session_state.get("user_role")
+    uploaded_docs = st.session_state.get("uploaded_docs", [])
+
+    # Filter ikut role user
+    docs = [doc for doc in uploaded_docs if doc["role"] == current_role]
+
+    if not docs:
+        st.info("No documents available for your role.")
+    else:
+        # Bina data untuk table (tanpa "No", guna index nanti)
+        table_data = []
+        for doc in docs:
+            type_label = (
+                doc["type"].upper() if doc["type"] in ["pdf", "txt", "csv", "xlsx", "pptx"]
+                else doc["type"].replace("_", " ").title()
+            )
+            table_data.append({
+                "Filename/URL": doc["filename"],
+                "Role": doc["role"],
+                "Type": type_label
+            })
+
+        # Convert to DataFrame dan set index start dari 1
+        df = pd.DataFrame(table_data)
+        df.index += 1
+        df.index.name = "No"
+
+        # Display table
+        st.table(df)
+
+        # Download button bawah table kalau ada file
+        for doc in docs:
+            if doc.get("file_data"):
+                st.download_button(
+                    label=f"Download {doc['filename']}",
+                    data=doc["file_data"],
+                    file_name=doc["filename"],
+                    key=f"dl_{doc['filename']}"
+                )
