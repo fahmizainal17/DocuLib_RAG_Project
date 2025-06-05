@@ -18,6 +18,13 @@ This Streamlit app provides:
 """
 
 import os
+
+# Set environment variables *before* importing any Hugging Face / LangChain modules
+os.environ["USER_AGENT"] = "DocuLibRAG/1.0 (fahmizainals9@gmail.com)"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# ---------------------------------------------------------------------------
+
 import shutil
 import tempfile
 import streamlit as st
@@ -38,10 +45,6 @@ from component import page_style
 
 # Apply nest_asyncio for AsyncHtmlLoader compatibility
 nest_asyncio.apply()
-
-# Set environment variables
-os.environ["USER_AGENT"] = "DocuLibRAG/1.0 (fahmizainals9@gmail.com)"
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # ------------------------------------------------------------------------------
 # Load secrets

@@ -81,71 +81,25 @@ def page_style():
         st.markdown("""
             ## 📂 DocuLib RAG System
 
-            **Securely upload, manage, and query documents with role-based access.**
+            **Learn and retrieve knowledge across all your documents through levels of access.**
 
-            ### 🔐 Role-Based Login
-            1. Choose a role (Admin, Manager, Worker) and enter the corresponding password.  
-               - **Admin:** Access all files (admin, manager, worker).  
-               - **Manager:** Access manager and worker files only.  
-               - **Worker:** Access worker files only.  
-            2. Passwords are stored securely in `st.secrets` (ADMIN_PASSWORD, MANAGER_PASSWORD, WORKER_PASSWORD).
+            ### 📖 How to Use:
+            1. Upload any `.txt`, `.pdf`, `.csv`, or `.xlsx` file in the “Upload” tab.  
+            2. Assign a role (worker, manager, admin) so only those roles can access each document.  
+            3. In the “Q&A” tab, ask questions and get instant answers based on your uploaded content.  
+            4. Use the “Document Library” tab to view or download files you have permission to access.
 
-            ### 📤 Main (Upload) Tab
-            1. Select “File”, “Website URL”, or “YouTube URL”.  
-            2. Upload `.txt`, `.pdf`, `.csv`, `.xlsx`, or `.pptx` files **or** provide a valid URL (must start with `http://` or `https://`).  
-            3. Assign the document to a role (worker, manager, admin).  
-            4. Click “Upload and Index” (or “Index URL”).  
-               - PDFs use `PyPDFLoader` to extract text.  
-               - CSV/Excel concatenate all cells.  
-               - PowerPoint files use `UnstructuredPowerPointLoader`.  
-               - Websites use `AsyncHtmlLoader` + `Html2TextTransformer`.  
-               - YouTube videos transcribe via `yt-dlp` + OpenAI Whisper.  
+            ### 🤖 Technologies Used:
+            - **Embedding Model:** `sentence-transformers/all-MiniLM-L6-v2`  
+            - **Vector Store:** FAISS (via LangChain)  
+            - **Text Generation:** Gemini 2.0 Flash (Google Generative AI)  
+            - **Database & Auth:** Supabase
 
-            ### ❓ Q&A Tab
-            1. Enter a question.  
-            2. Click “Get Answer”.  
-            3. DocuLib retrieves the top-3 relevant chunks from FAISS (filtered by your role) and generates an answer via Gemini.  
+            ### 🔑 User Roles:
+            - **Worker:** Can upload and query documents tagged “worker”.  
+            - **Manager:** Can upload and query documents tagged “manager” or “worker”.  
+            - **Admin:** Full access to all documents.
 
-            ### 📚 Document Library Tab
-            1. View a table of all uploaded documents your role can access.  
-            2. Download files you have permission to see.  
-
-            ### 🤖 Technologies Used
-            - **Document Extraction & Chunking:**  
-              • `PyPDFLoader` (PDFs)  
-              • `AsyncHtmlLoader` + `Html2TextTransformer` (Websites)  
-              • `UnstructuredPowerPointLoader` (PPTX)  
-              • `yt-dlp` + OpenAI Whisper (YouTube)  
-              • Pandas (CSV, Excel)  
-
-            - **Embeddings & Vector Store:**  
-              • `sentence-transformers/all-MiniLM-L6-v2` (Hugging Face)  
-              • FAISS (via LangChain)  
-
-            - **Answer Generation:**  
-              • Gemini 2.0 Flash (Google Generative AI)  
-              • `openai` (Whisper transcriptions)  
-
-            - **Authentication & Secrets:**  
-              • Role passwords in `st.secrets`  
-              • Supabase (optional for future extensions)  
-
-            - **Other Libraries:**  
-              • Streamlit  
-              • PIL  
-              • LangChain  
-              • Nest-asyncio (for async loaders)  
-              • pandas  
-              • faiss  
-              • yt-dlp  
-
-            ### 🔑 User Roles at a Glance
-            - **Worker:**  
-              • Upload & query documents tagged “worker”.  
-            - **Manager:**  
-              • Upload & query documents tagged “manager” or “worker”.  
-            - **Admin:**  
-              • Full access to documents tagged “admin”, “manager”, or “worker”.  
             ---
         """)
 
@@ -164,7 +118,7 @@ def page_style():
         # About the Developer or Team
         st.markdown("""
         ### 👨‍💻 About the Developer
-        We are the **DocuLib Team**, dedicated to secure document retrieval and knowledge management.
+        Hi! We are the **DocuLib Team**, dedicated to making document retrieval and knowledge management simple and secure.
 
         **Connect with us:**
         """)
