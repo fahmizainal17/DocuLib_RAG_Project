@@ -1,7 +1,8 @@
 # **📂 DocuLib RAG Knowledge System**
 
 <div align="center">
-    <img src="https://img.shields.io/badge/Streamlit-DocuLib_RAG_System-blue?style=for-the-badge&logo=streamlit" alt="DocuLib RAG System"/>
+    <img src="https://img.shields.io/badge/Streamlit-DocuLib_RAG_System-blue?style=for-the-badge&logo=streamlit" alt="DocuLib RAG System"/><br>
+    <a href="https://doculib-rag-app.streamlit.app/" target="_blank">https://doculib-rag-app.streamlit.app/</a>
 </div>
 
 ## ![DocuLib RAG System Screenshot](assets/app_image.png)
