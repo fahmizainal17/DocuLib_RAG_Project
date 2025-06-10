@@ -172,17 +172,35 @@ def clear_faiss_index():
         st.error(f"Error clearing FAISS index: {e}")
 
 def extract_text_from_pdf(file_path: str) -> str:
-    """Extract text from a PDF file using PyPDFLoader."""
+    """
+    Extract text from a PDF file, preferring OCR if available.
+
+    Tries UnstructuredPDFLoader (OCR, supports image PDFs).
+    Falls back to PyPDFLoader (text PDFs only).
+    """
     try:
-        loader = PyPDFLoader(file_path, extract_images=True)
-        pages = loader.load()
-        text = " ".join(page.page_content for page in pages)
-        if not text.strip():
-            st.warning("No text could be extracted from the PDF.")
-        return text
+        try:
+            from langchain_community.document_loaders import UnstructuredPDFLoader
+            loader = UnstructuredPDFLoader(file_path, strategy="hi_res")  # Use OCR if needed
+            pages = loader.load()
+            text = " ".join(page.page_content for page in pages)
+            if not text.strip():
+                st.warning("No text could be extracted from the PDF (even with OCR).")
+            return text
+        except ImportError:
+            # UnstructuredPDFLoader or OCR not available
+            st.warning("OCR dependencies not found, falling back to PyPDFLoader. Image-based PDFs may not work.")
+            from langchain_community.document_loaders import PyPDFLoader
+            loader = PyPDFLoader(file_path, extract_images=True)
+            pages = loader.load()
+            text = " ".join(page.page_content for page in pages)
+            if not text.strip():
+                st.warning("No text could be extracted from the PDF (text-based only).")
+            return text
     except Exception as e:
         st.error(f"Error extracting text from PDF: {e}")
         return ""
+
 
 def extract_text_from_csv(file_path: str) -> str:
     """Convert CSV file to plain text by concatenating all fields."""
