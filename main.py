@@ -539,5 +539,5 @@ if st.session_state.login_status:
                         label=f"Download {doc['filename']}",
                         data=doc["file_data"],
                         file_name=doc["filename"],
-                        key=f"dl_{doc['filename']}"
+                        key=f"dl_{doc['doc_id']}_{doc['filename']}"  # <-- Unique key for each download button
                     )

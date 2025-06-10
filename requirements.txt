@@ -17,3 +17,4 @@ openai==1.84.0
 nest_asyncio==1.6.0
 html2text==2025.4.15
 playwright==1.52.0
+rapidocr-onnxruntime==1.4.4
