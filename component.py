@@ -138,6 +138,7 @@ def page_style():
             - Large PDFs/videos may fail or be slow due to API quota or memory limits.
             - No multi-user or remote database sync: documents and answers are per-session only.
             - Error messages will appear below if anything fails (file, API, or parsing).
+            ---
         """)
 
         # Play background music (optional)
