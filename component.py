@@ -11,11 +11,26 @@ def get_base64_of_bin_file(bin_file):
     return base64.b64encode(data).decode()
 
 def page_style():
+    # Set page config at the start (should be the first Streamlit call in the app)
+    icon_path = "assets/RAG_LLM_Pic.jpg"
+    if not os.path.exists(icon_path):
+        icon_path = "./assets/RAG_LLM_Pic.jpg"
+    try:
+        icon = Image.open(icon_path)
+        st.set_page_config(page_title="DocuLib RAG System", page_icon=icon, layout="wide")
+    except Exception as e:
+        st.warning(f"Failed to load page icon: {e}")
+        st.set_page_config(page_title="DocuLib RAG System", layout="wide")
+
     # Path safety: allow both 'assets/' and './assets/'
     sidebar_image_path = "assets/doc_background.jpg"
     if not os.path.exists(sidebar_image_path):
         sidebar_image_path = "./assets/doc_background.jpg"
-    sidebar_image_base64 = get_base64_of_bin_file(sidebar_image_path)
+    try:
+        sidebar_image_base64 = get_base64_of_bin_file(sidebar_image_path)
+    except FileNotFoundError:
+        st.warning(f"Sidebar background image not found at {sidebar_image_path}")
+        sidebar_image_base64 = ""  # Fallback to no background if image is missing
 
     custom_style = f"""
         <style>
@@ -58,26 +73,27 @@ def page_style():
         </style>
     """
 
-    # Set page config only once
-    icon_path = "assets/RAG_LLM_Pic.jpg"
-    if not os.path.exists(icon_path):
-        icon_path = "./assets/RAG_LLM_Pic.jpg"
-    icon = Image.open(icon_path)
-    st.set_page_config(page_title="DocuLib RAG System", page_icon=icon, layout="wide")
-
     st.markdown(custom_style, unsafe_allow_html=True)
 
+    # Main background image
     main_bg_path = "assets/DocuLib_Background.png"
     if not os.path.exists(main_bg_path):
         main_bg_path = "./assets/DocuLib_Background.png"
-    main_bg = Image.open(main_bg_path)
-    st.image(main_bg, use_container_width=True)
+    try:
+        main_bg = Image.open(main_bg_path)
+        st.image(main_bg, use_container_width=True)
+    except Exception as e:
+        st.warning(f"Failed to load main background image: {e}")
 
     with st.sidebar:
+        # Profile photo
         profile_photo_path = "photos/Round_Profile_Photo.png"
         if not os.path.exists(profile_photo_path):
             profile_photo_path = "./photos/Round_Profile_Photo.png"
-        st.image(profile_photo_path, width=100)
+        try:
+            st.image(profile_photo_path, width=100)
+        except Exception as e:
+            st.warning(f"Failed to load profile photo: {e}")
 
         st.markdown("""
             ## 📂 DocuLib RAG System
@@ -115,24 +131,31 @@ def page_style():
             - **Admin:**  
               • Full access to documents tagged “admin”, “manager”, or “worker”.
             ---
+                    
+            **⚠️ Limitations:**
+            For Demo Purposes Only:
+            - This app is for single-session use only. Uploaded documents and answers are NOT shared across users or browser sessions.
+            - Large PDFs/videos may fail or be slow due to API quota or memory limits.
+            - No multi-user or remote database sync: documents and answers are per-session only.
+            - Error messages will appear below if anything fails (file, API, or parsing).
         """)
 
         # Play background music (optional)
         st.markdown("""
-        <a href="https://youtu.be/kx5N2TeDqNM?si=-sCwGJpuKLQ1PFO6" target="_blank">
-            <button style="background-color: #FFA500; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
-                🎵 Play Background Music
-            </button>
-        </a>
+            <a href="https://youtu.be/kx5N2TeDqNM?si=-sCwGJpuKLQ1PFO6" target="_blank">
+                <button style="background-color: #FFA500; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
+                    🎵 Play Background Music
+                </button>
+            </a>
         """, unsafe_allow_html=True)
 
         st.markdown("""---""")
 
         st.markdown("""
-        ### 👨‍💻 About the Developer
-        We are the **DocuLib Team**, dedicated to secure document retrieval and knowledge management.
+            ### 👨‍💻 About the Developer
+            We are the **DocuLib Team**, dedicated to secure document retrieval and knowledge management.
 
-        **Connect with us:**
+            **Connect with us:**
         """)
 
         # LinkedIn Button
