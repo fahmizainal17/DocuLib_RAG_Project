@@ -401,10 +401,6 @@ def search_vectorstore(question: str, top_k: int = 3) -> str:
 # Apply custom styles
 page_style()
 
-
-# ------------ ADDED: Session/user warning ---------------
-st.info("⚠️ This app is for single-session use only. Uploaded documents and answers are NOT shared across users or browser sessions.")
-
 st.title("RAG Knowledge System")
 
 # Initialize session_state keys
