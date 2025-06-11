@@ -472,64 +472,66 @@ if st.session_state.login_status:
         assigned_role = st.selectbox("Assign access to role:", ["worker", "manager", "admin"])
 
         if input_type == "File":
-            uploaded_file = st.file_uploader(
-                "Select a file",
+            uploaded_files = st.file_uploader(
+                "Select files",
                 type=["txt", "pdf", "csv", "xlsx", "pptx"],
-                accept_multiple_files=False
+                accept_multiple_files=True
             )
-            if uploaded_file:
-                st.markdown(f"**File:** {uploaded_file.name} | **Size:** {uploaded_file.size // 1024} KB")
-                # ADDED: file size check and error
-                if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
-                    st.error(f"File is too large! Please upload files smaller than {MAX_FILE_SIZE_MB}MB.")  # ADDED
-                elif st.button("Upload and Index"):
-                    file_data = uploaded_file.read()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{uploaded_file.name}") as tmp:
-                        tmp.write(file_data)
-                        tmp.flush()
-                        tmp_path = tmp.name
+            if uploaded_files is not None and len(uploaded_files) > 0:
+                # Let user select role ONCE for all files
+                st.markdown(f"**{len(uploaded_files)} file(s) selected.**")
+                for uploaded_file in uploaded_files:
+                    st.markdown(f"- **{uploaded_file.name}** | **Size:** {uploaded_file.size // 1024} KB")
+                if st.button("Upload and Index"):
+                    files_uploaded = 0
+                    for uploaded_file in uploaded_files:
+                        # Check file size per file
+                        if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+                            st.error(f"File {uploaded_file.name} is too large! Please upload files smaller than {MAX_FILE_SIZE_MB}MB.")
+                            continue
+                        try:
+                            file_data = uploaded_file.read()
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{uploaded_file.name}") as tmp:
+                                tmp.write(file_data)
+                                tmp.flush()
+                                tmp_path = tmp.name
 
-                    doc_id = f"file_{len(st.session_state.uploaded_docs) + 1}"
-                    file_type = {
-                        "application/pdf": "pdf",
-                        "text/plain": "txt",
-                        "text/csv": "csv",
-                        "application/vnd.ms-excel": "xlsx",
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-                        "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-                    }.get(uploaded_file.type, "unknown")
+                            doc_id = f"file_{len(st.session_state.uploaded_docs) + 1}"
+                            file_type = {
+                                "application/pdf": "pdf",
+                                "text/plain": "txt",
+                                "text/csv": "csv",
+                                "application/vnd.ms-excel": "xlsx",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+                                "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+                            }.get(uploaded_file.type, "unknown")
 
-                    if file_type != "unknown":
-                        file_data = index_file(doc_id, tmp_path, file_type, file_data)
-                        st.success(f"{file_type.upper()} file indexed into FAISS.")
-                        st.session_state.uploaded_docs.append({
-                            "doc_id": doc_id,
-                            "filename": uploaded_file.name,
-                            "path": tmp_path,
-                            "role": assigned_role,
-                            "type": file_type,
-                            "file_data": file_data,
-                        })
-                        st.success(f"{file_type.upper()} '{uploaded_file.name}' uploaded for role '{assigned_role}'.")
-                    else:
-                        st.error("Unsupported file type.")
-                        cleanup_temp_file(tmp_path)
+                            if file_type != "unknown":
+                                file_data = index_file(doc_id, tmp_path, file_type, file_data)
+                                st.session_state.uploaded_docs.append({
+                                    "doc_id": doc_id,
+                                    "filename": uploaded_file.name,
+                                    "path": tmp_path,
+                                    "role": assigned_role,
+                                    "type": file_type,
+                                    "file_data": file_data,
+                                })
+                                st.success(f"{file_type.upper()} '{uploaded_file.name}' uploaded for role '{assigned_role}'.")
+                                files_uploaded += 1
+                            else:
+                                st.error(f"Unsupported file type for {uploaded_file.name}.")
+                                cleanup_temp_file(tmp_path)
+                        except Exception as e:
+                            st.error(f"Failed to process file {uploaded_file.name}: {e}")
 
+                    if files_uploaded == 0:
+                        st.warning("No files were uploaded or processed. Please check your files.")
+            elif uploaded_files is not None and len(uploaded_files) == 0:
+                st.warning("No files selected. Please select at least one file.")
+            # Defensive: If browser/Streamlit does not support multiple, show message
+            elif uploaded_files is None:
+                st.error("Multiple file upload is not supported in this browser or Streamlit version. Please update or try a different browser.")
 
-        else:
-            url_input = st.text_input(f"Enter {input_type}:")
-            if url_input and st.button("Index URL"):
-                doc_id = f"url_{len(st.session_state.uploaded_docs) + 1}"
-                if index_url(doc_id, url_input, input_type.lower().replace(" ", "_")):
-                    st.session_state.uploaded_docs.append({
-                        "doc_id": doc_id,
-                        "filename": url_input,
-                        "path": None,
-                        "role": assigned_role,
-                        "type": input_type.lower().replace(" ", "_"),
-                        "file_data": None,
-                    })
-                    st.success(f"{input_type} '{url_input}' indexed for role '{assigned_role}'.")
 
     # -------------------------------- Q&A ----------------------------------------
     with tab2:
