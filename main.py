@@ -42,15 +42,6 @@ import nest_asyncio
 from openai import OpenAI
 import yt_dlp
 from component import page_style 
-import torch
-from sentence_transformers import SentenceTransformer
-
-if torch.cuda.is_available():
-    device = "cuda"
-elif torch.backends.mps.is_available():
-    device = "mps"
-else:
-    device = "cpu"
 
 # Apply nest_asyncio for AsyncHtmlLoader compatibility
 nest_asyncio.apply()
@@ -98,7 +89,7 @@ gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 openai_client = OpenAI(api_key=OPENAI_TRANSCRIPTION_API_KEY)
 
 # Embedding model for FAISS via LangChain
-embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device=device)
+embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 # Prompt template for answer generation
 template = (
