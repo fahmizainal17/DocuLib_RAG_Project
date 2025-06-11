@@ -46,8 +46,6 @@ from component import page_style
 # Apply nest_asyncio for AsyncHtmlLoader compatibility
 nest_asyncio.apply()
 
-MAX_FILE_SIZE_MB = 10
-
 # ------------------------------------------------------------------------------
 # Load secrets
 # ------------------------------------------------------------------------------
@@ -366,33 +364,25 @@ def generate_answer_with_gemini(question: str, context: str) -> str:
         return "Unable to generate answer."
 
 def search_vectorstore(question: str, top_k: int = 3) -> str:
-    """
-    Retrieve top_k relevant chunks from FAISS,
-    but ONLY for docs the current user has access to.
-    """
+    """Retrieve top_k relevant chunks from FAISS, filtered by user role and current session documents."""
     try:
-        # Only search for doc_ids that match accessible_roles
+        docs = st.session_state.vectorstore.similarity_search(question, k=top_k)
         current_role = st.session_state.get("user_role")
-        uploaded_docs = st.session_state.get("uploaded_docs", [])
+        current_doc_ids = set(d["doc_id"] for d in st.session_state.get("uploaded_docs", []))
         allowed_roles = {"admin": ["admin", "manager", "worker"], "manager": ["manager", "worker"], "worker": ["worker"]}
         accessible_roles = allowed_roles.get(current_role, [])
-        accessible_doc_ids = set(doc["doc_id"] for doc in uploaded_docs if doc["role"] in accessible_roles)
-        # Get all matching chunks (FAISS is not role-aware)
-        docs = st.session_state.vectorstore.similarity_search(question, k=top_k*5)  # Get more to allow stricter filter
-        # Filter: only use chunks from allowed docs
         filtered_docs = [
             doc for doc in docs
-            if doc.metadata.get("doc_id") in accessible_doc_ids
+            if doc.metadata["doc_id"] in current_doc_ids and any(
+                d["doc_id"] == doc.metadata["doc_id"] and d["role"] in accessible_roles
+                for d in st.session_state.get("uploaded_docs", [])
+            )
         ]
-        if not filtered_docs:
-            st.info("No relevant context found **for your access level**. Try uploading more documents or check your permissions.")
-            return ""
-        contexts = [doc.page_content for doc in filtered_docs[:top_k]]
-        return "\n---\n".join(contexts)
+        contexts = [doc.page_content for doc in filtered_docs]
+        return "\n---\n".join(contexts) if contexts else ""
     except Exception as e:
         st.error(f"Error searching vectorstore: {e}")
         return ""
-
 
 # ------------------------------------------------------------------------------
 # Streamlit App
@@ -400,10 +390,6 @@ def search_vectorstore(question: str, top_k: int = 3) -> str:
 
 # Apply custom styles
 page_style()
-
-
-# ------------ ADDED: Session/user warning ---------------
-st.info("⚠️ This app is for single-session use only. Uploaded documents and answers are NOT shared across users or browser sessions.")
 
 st.title("RAG Knowledge System")
 
@@ -470,10 +456,7 @@ if st.session_state.login_status:
             )
             if uploaded_file:
                 st.markdown(f"**File:** {uploaded_file.name} | **Size:** {uploaded_file.size // 1024} KB")
-                # ADDED: file size check and error
-                if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
-                    st.error(f"File is too large! Please upload files smaller than {MAX_FILE_SIZE_MB}MB.")  # ADDED
-                elif st.button("Upload and Index"):
+                if st.button("Upload and Index"):
                     file_data = uploaded_file.read()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{uploaded_file.name}") as tmp:
                         tmp.write(file_data)
@@ -505,7 +488,6 @@ if st.session_state.login_status:
                     else:
                         st.error("Unsupported file type.")
                         cleanup_temp_file(tmp_path)
-
 
         else:
             url_input = st.text_input(f"Enter {input_type}:")
@@ -577,11 +559,3 @@ if st.session_state.login_status:
                         file_name=doc["filename"],
                         key=f"dl_{doc['doc_id']}_{doc['filename']}"  # <-- Unique key for each download button
                     )
-
-# ----------------- ADDED: About app error/limitation feedback ----------------
-st.caption("""
-**Limitations:**
-- Large PDFs/videos may fail or be slow due to API quota or memory limits.
-- No multi-user or remote database sync: documents and answers are per-session only.
-- Error messages will appear below if anything fails (file, API, or parsing).
-""")
