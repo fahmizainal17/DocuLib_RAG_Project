@@ -56,8 +56,8 @@ def page_style():
                 right: 2rem;
             }}
 
-            .stButton>button {{background-color: #FFA500; color: white !important;}}
-            .stDownloadButton>button {{background-color: #FFA500; color: white !important;}}
+            .stButton>button {{background-color: #228B22; color: white !important;}}
+            .stDownloadButton>button {{background-color: #228B22; color: white !important;}}
 
             .cert-card {{
                 background-color: #333333;
@@ -144,7 +144,7 @@ def page_style():
         # Play background music (optional)
         st.markdown("""
             <a href="https://youtu.be/kx5N2TeDqNM?si=-sCwGJpuKLQ1PFO6" target="_blank">
-                <button style="background-color: #FFA500; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
+                <button style="background-color: #228B22; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
                     🎵 Play Background Music
                 </button>
             </a>
@@ -163,7 +163,7 @@ def page_style():
         linkedin_url = "https://www.linkedin.com/in/fahmizainal17"
         st.markdown(f"""
             <a href="{linkedin_url}" target="_blank">
-                <button style="background-color: #0077B5; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
+                <button style="background-color: #228B22; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
                     <img src="https://cdn-icons-png.flaticon.com/512/174/174857.png" width="16" style="vertical-align: middle;"> Connect on LinkedIn
                 </button>
             </a>
@@ -173,7 +173,7 @@ def page_style():
         github_url = "https://github.com/fahmizainal17/DocuLib"
         st.markdown(f"""
             <a href="{github_url}" target="_blank">
-                <button style="background-color: #333; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
+                <button style="background-color: #228B22; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
                     <img src="https://cdn-icons-png.flaticon.com/512/25/25231.png" width="16" style="vertical-align: middle;"> Check out DocuLib on GitHub
                 </button>
             </a>
