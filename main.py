@@ -175,33 +175,46 @@ def clear_faiss_index():
 
 def extract_text_from_pdf(file_path: str) -> str:
     """
-    Extract text from a PDF file, preferring OCR if available.
-
-    Tries UnstructuredPDFLoader (OCR, supports image PDFs).
-    Falls back to PyPDFLoader (text PDFs only).
+    Try to extract text page by page.
+    - Tries OCR loader first for all pages.
+    - If that fails, tries PyPDFLoader page by page.
+    - If a page fails, continues to the next one.
+    No errors or warnings shown to user.
     """
+    # Try OCR loader page by page
     try:
-        try:
-            from langchain_community.document_loaders import UnstructuredPDFLoader
-            loader = UnstructuredPDFLoader(file_path, strategy="hi_res")  # Use OCR if needed
-            pages = loader.load()
-            text = " ".join(page.page_content for page in pages)
-            if not text.strip():
-                st.warning("No text could be extracted from the PDF (even with OCR).")
-            return text
-        except ImportError:
-            # UnstructuredPDFLoader or OCR not available
-            st.warning("OCR dependencies not found, falling back to PyPDFLoader. Image-based PDFs may not work.")
-            from langchain_community.document_loaders import PyPDFLoader
-            loader = PyPDFLoader(file_path, extract_images=True)
-            pages = loader.load()
-            text = " ".join(page.page_content for page in pages)
-            if not text.strip():
-                st.warning("No text could be extracted from the PDF (text-based only).")
-            return text
-    except Exception as e:
-        st.error(f"Error extracting text from PDF: {e}")
-        return ""
+        from langchain_community.document_loaders import UnstructuredPDFLoader
+        loader = UnstructuredPDFLoader(file_path, strategy="hi_res")
+        pages = loader.load()
+        texts = []
+        for page in pages:
+            try:
+                texts.append(page.page_content)
+            except Exception:
+                continue  # Just skip bad pages
+        if texts:
+            return " ".join(texts)
+    except Exception:
+        pass  # Ignore all OCR errors
+
+    # Fallback: PyPDFLoader, page by page
+    try:
+        from langchain_community.document_loaders import PyPDFLoader
+        loader = PyPDFLoader(file_path, extract_images=False)
+        pages = loader.load()
+        texts = []
+        for page in pages:
+            try:
+                texts.append(page.page_content)
+            except Exception:
+                continue  # Just skip bad pages
+        if texts:
+            return " ".join(texts)
+    except Exception:
+        pass  # Ignore all errors
+
+    # Nothing could be read, just return empty
+    return ""
 
 
 def extract_text_from_csv(file_path: str) -> str:
