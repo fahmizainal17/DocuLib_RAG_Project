@@ -574,13 +574,14 @@ if st.session_state.login_status:
                         key=f"dl_{doc['doc_id']}_{doc['filename']}"  # <-- Unique key for each download button
                     )
 
+#------------------ ADDED: Session/user warning -------------------------------
 # ----------------- ADDED: About app error/limitation feedback ----------------
-# ------------ ADDED: Session/user warning ---------------
-    st.info("⚠️ This app is for single-session use only. Uploaded documents and answers are NOT shared across users or browser sessions.")
+    st.caption("""
+    ⚠️ This app is for single-session use only. Uploaded documents and answers are NOT shared across users or browser sessions.
+            
 
-st.caption("""
-**Limitations:**
-- Large PDFs/videos may fail or be slow due to API quota or memory limits.
-- No multi-user or remote database sync: documents and answers are per-session only.
-- Error messages will appear below if anything fails (file, API, or parsing).
-""")
+    **Limitations:**
+    - Large PDFs/videos may fail or be slow due to API quota or memory limits.
+    - No multi-user or remote database sync: documents and answers are per-session only.
+    - Error messages will appear below if anything fails (file, API, or parsing).
+    """)
