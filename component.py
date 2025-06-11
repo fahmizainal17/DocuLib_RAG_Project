@@ -1,30 +1,30 @@
+# DocuLib RAG System - Component for Streamlit App
 import streamlit as st
 from PIL import Image
 import base64
+import os
 
 def get_base64_of_bin_file(bin_file):
-    """
-    Function to encode a local file (image or gif) to a base64 string.
-    """
+    """Encode a local file (image or gif) to a base64 string."""
     with open(bin_file, "rb") as f:
         data = f.read()
     return base64.b64encode(data).decode()
 
 def page_style():
-    # Encode the local image to base64 for the sidebar background
-    sidebar_image_base64 = get_base64_of_bin_file("assets/doc_background.jpg")
+    # Path safety: allow both 'assets/' and './assets/'
+    sidebar_image_path = "assets/doc_background.jpg"
+    if not os.path.exists(sidebar_image_path):
+        sidebar_image_path = "./assets/doc_background.jpg"
+    sidebar_image_base64 = get_base64_of_bin_file(sidebar_image_path)
 
-    # Custom CSS to style the page and sidebar
     custom_style = f"""
         <style>
-            /* Hide Streamlit default elements */
             #MainMenu {{visibility: hidden;}}
             footer {{visibility: hidden;}}
             header {{visibility: hidden;}}
 
-            /* Sidebar background with a dark overlay */
             [data-testid="stSidebar"] > div:first-child {{
-                background-color: #111;  /* Fallback solid dark background */
+                background-color: #111;
                 background-image: linear-gradient(rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.85)),
                 url("data:image/jpg;base64,{sidebar_image_base64}");
                 background-size: cover;
@@ -33,7 +33,6 @@ def page_style():
                 background-attachment: local;
             }}
 
-            /* Adjust header and toolbar */
             [data-testid="stHeader"] {{
                 background: rgba(0,0,0,0);
             }}
@@ -42,11 +41,9 @@ def page_style():
                 right: 2rem;
             }}
 
-            /* Button styles */
             .stButton>button {{background-color: #FFA500; color: white !important;}}
             .stDownloadButton>button {{background-color: #FFA500; color: white !important;}}
 
-            /* Custom card styles */
             .cert-card {{
                 background-color: #333333;
                 color: white;
@@ -61,23 +58,27 @@ def page_style():
         </style>
     """
 
-    # Set the page configuration with a custom icon and wide layout
-    icon = Image.open("assets/RAG_LLM_Pic.jpg")
+    # Set page config only once
+    icon_path = "assets/RAG_LLM_Pic.jpg"
+    if not os.path.exists(icon_path):
+        icon_path = "./assets/RAG_LLM_Pic.jpg"
+    icon = Image.open(icon_path)
     st.set_page_config(page_title="DocuLib RAG System", page_icon=icon, layout="wide")
 
-    # Apply the custom CSS to the page
     st.markdown(custom_style, unsafe_allow_html=True)
 
-    # Display the main background image at the top of the page
-    main_bg = Image.open("assets/DocuLib_Background.png")
+    main_bg_path = "assets/DocuLib_Background.png"
+    if not os.path.exists(main_bg_path):
+        main_bg_path = "./assets/DocuLib_Background.png"
+    main_bg = Image.open(main_bg_path)
     st.image(main_bg, use_container_width=True)
 
-    # Sidebar content
     with st.sidebar:
-        # Display a round profile picture (or logo) at the top of the sidebar
-        st.image("photos/Round_Profile_Photo.png", width=100)
+        profile_photo_path = "photos/Round_Profile_Photo.png"
+        if not os.path.exists(profile_photo_path):
+            profile_photo_path = "./photos/Round_Profile_Photo.png"
+        st.image(profile_photo_path, width=100)
 
-        # --- DocuLib RAG System Sidebar Content ---
         st.markdown("""
             ## 📂 DocuLib RAG System
 
@@ -92,76 +93,41 @@ def page_style():
 
             ### 📤 Main (Upload) Tab
             1. Select “File”, “Website URL”, or “YouTube URL”.  
-            2. Upload `.txt`, `.pdf`, `.csv`, `.xlsx`, or `.pptx` files **or** provide a valid URL (must start with `http://` or `https://`).  
-            3. Assign the document to a role (worker, manager, admin).  
-            4. Click “Upload and Index” (or “Index URL”).  
-               - PDFs use `PyPDFLoader` to extract text.  
-               - CSV/Excel concatenate all cells.  
-               - PowerPoint files use `UnstructuredPowerPointLoader`.  
-               - Websites use `AsyncHtmlLoader` + `Html2TextTransformer`.  
-               - YouTube videos transcribe via `yt-dlp` + OpenAI Whisper.  
+            2. Upload `.txt`, `.pdf`, `.csv`, `.xlsx`, or `.pptx` files **or** provide a valid URL.  
+            3. Assign to a role.  
+            4. Click “Upload and Index” (or “Index URL”).
 
             ### ❓ Q&A Tab
-            1. Enter a question.  
-            2. Click “Get Answer”.  
-            3. DocuLib retrieves the top-3 relevant chunks from FAISS (filtered by your role) and generates an answer via Gemini.  
+            - Enter a question and get answers from documents your role can access.
 
             ### 📚 Document Library Tab
-            1. View a table of all uploaded documents your role can access.  
-            2. Download files you have permission to see.  
+            - View and download all documents your role can access.
 
             ### 🤖 Technologies Used
-            - **Document Extraction & Chunking:**  
-              • `PyPDFLoader` (PDFs)  
-              • `AsyncHtmlLoader` + `Html2TextTransformer` (Websites)  
-              • `UnstructuredPowerPointLoader` (PPTX)  
-              • `yt-dlp` + OpenAI Whisper (YouTube)  
-              • Pandas (CSV, Excel)  
-
-            - **Embeddings & Vector Store:**  
-              • `sentence-transformers/all-MiniLM-L6-v2` (Hugging Face)  
-              • FAISS (via LangChain)  
-
-            - **Answer Generation:**  
-              • Gemini 2.0 Flash (Google Generative AI)  
-              • `openai` (Whisper transcriptions)  
-
-            - **Authentication & Secrets:**  
-              • Role passwords in `st.secrets`  
-              • Supabase (optional for future extensions)  
-
-            - **Other Libraries:**  
-              • Streamlit  
-              • PIL  
-              • LangChain  
-              • Nest-asyncio (for async loaders)  
-              • pandas  
-              • faiss  
-              • yt-dlp  
+            - `PyPDFLoader`, `AsyncHtmlLoader`, `UnstructuredPowerPointLoader`, `yt-dlp` + OpenAI Whisper, Pandas
+            - `sentence-transformers/all-MiniLM-L6-v2`, FAISS, Gemini 2.0 Flash, Streamlit
 
             ### 🔑 User Roles at a Glance
             - **Worker:**  
-              • Upload & query documents tagged “worker”.  
+              • Upload & query documents tagged “worker”.
             - **Manager:**  
-              • Upload & query documents tagged “manager” or “worker”.  
+              • Upload & query documents tagged “manager” or “worker”.
             - **Admin:**  
-              • Full access to documents tagged “admin”, “manager”, or “worker”.  
+              • Full access to documents tagged “admin”, “manager”, or “worker”.
             ---
         """)
 
-        # Optional: Play background music button
-        new_tab_button = """
+        # Play background music (optional)
+        st.markdown("""
         <a href="https://youtu.be/kx5N2TeDqNM?si=-sCwGJpuKLQ1PFO6" target="_blank">
             <button style="background-color: #FFA500; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 8px;">
                 🎵 Play Background Music
             </button>
         </a>
-        """
-        st.markdown(new_tab_button, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
         st.markdown("""---""")
 
-        # About the Developer or Team
         st.markdown("""
         ### 👨‍💻 About the Developer
         We are the **DocuLib Team**, dedicated to secure document retrieval and knowledge management.
