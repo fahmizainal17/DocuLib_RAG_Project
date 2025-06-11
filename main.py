@@ -575,6 +575,9 @@ if st.session_state.login_status:
                     )
 
 # ----------------- ADDED: About app error/limitation feedback ----------------
+# ------------ ADDED: Session/user warning ---------------
+    st.info("⚠️ This app is for single-session use only. Uploaded documents and answers are NOT shared across users or browser sessions.")
+
 st.caption("""
 **Limitations:**
 - Large PDFs/videos may fail or be slow due to API quota or memory limits.
